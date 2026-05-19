@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { mockDb } from '../services/mockDb';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 import { Heart, Share2, ShieldCheck, History, ArrowLeft, Wallet } from 'lucide-react';
 import Button from '../components/Button';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -11,9 +12,52 @@ const CampaignDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const campaign = mockDb.getCampaignById(id);
+  
+  const [campaign, setCampaign] = useState(null);
+  const [donations, setDonations] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [donationAmount, setDonationAmount] = useState('');
   const [isDonating, setIsDonating] = useState(false);
+
+  useEffect(() => {
+    const fetchCampaignData = async () => {
+      try {
+        // Fetch campaign details
+        const { data: campaignData, error: campaignError } = await supabase
+          .from('campaigns')
+          .select('*')
+          .eq('id', id)
+          .single();
+
+        if (campaignError) throw campaignError;
+        setCampaign(campaignData);
+
+        // Fetch recent donations
+        const { data: donationData } = await supabase
+          .from('donation_logs')
+          .select('*')
+          .eq('campaign_id', id)
+          .order('created_at', { ascending: false })
+          .limit(5);
+
+        if (donationData) setDonations(donationData);
+      } catch (error) {
+        console.error("Error fetching campaign details:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCampaignData();
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <div className="w-8 h-8 border-4 border-black border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
 
   if (!campaign) {
     return (
@@ -24,8 +68,7 @@ const CampaignDetails = () => {
     );
   }
 
-  const progress = Math.min((campaign.raised_amount / campaign.goal_amount) * 100, 100);
-  const donations = mockDb.getDonationsByCampaign(id);
+  const progress = Math.min((parseFloat(campaign.raised_amount) / parseFloat(campaign.goal_amount)) * 100, 100);
 
   const handleDonate = async (e) => {
     e.preventDefault();
@@ -41,20 +84,42 @@ const CampaignDetails = () => {
     }
 
     setIsDonating(true);
-    // Simulate Blockchain Transaction
+    // Simulate Blockchain Transaction Delay
     await new Promise(resolve => setTimeout(resolve, 2000));
     
     try {
-      mockDb.addDonation({
-        campaign_id: id,
-        donor_id: user.id,
-        amount: parseFloat(donationAmount),
-        tx_hash: `0x${Math.random().toString(16).slice(2, 42)}`
-      });
+      const amount = parseFloat(donationAmount);
+      const txHash = `0x${Math.random().toString(16).slice(2, 42)}`;
+
+      // 1. Insert Donation Log
+      const { data: newDonation, error: donationError } = await supabase
+        .from('donation_logs')
+        .insert({
+          campaign_id: id,
+          donor_id: user.id,
+          amount: amount,
+          tx_hash: txHash
+        })
+        .select()
+        .single();
+
+      if (donationError) throw donationError;
+
+      // 2. Update Campaign raised_amount
+      const newRaisedAmount = parseFloat(campaign.raised_amount) + amount;
+      const { error: updateError } = await supabase
+        .from('campaigns')
+        .update({ raised_amount: newRaisedAmount })
+        .eq('id', id);
+
+      if (updateError) throw updateError;
       
+      setCampaign({ ...campaign, raised_amount: newRaisedAmount });
+      setDonations([newDonation, ...donations.slice(0, 4)]);
       toast.success(`Thank you! Your donation of $${donationAmount} was successful.`);
       setDonationAmount('');
     } catch (err) {
+      console.error("Donation failed:", err);
       toast.error('Donation failed');
     } finally {
       setIsDonating(false);

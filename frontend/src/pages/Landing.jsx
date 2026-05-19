@@ -1,10 +1,31 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ShieldCheck, Users, Landmark, Heart, Play } from 'lucide-react';
+import { ShieldCheck, Users, Landmark, Heart, Play, Megaphone } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { supabase } from '../lib/supabase';
+import CampaignCard from '../components/CampaignCard';
 import bgImage from '../../bg.png';
 
 const Landing = () => {
+  const [campaigns, setCampaigns] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchCampaigns = async () => {
+      try {
+        const { data } = await supabase
+          .from('campaigns')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (data) setCampaigns(data);
+      } catch (error) {
+        console.error("Error fetching campaigns:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchCampaigns();
+  }, []);
   return (
     <div className="relative min-h-screen overflow-hidden bg-black text-white antialiased font-sans">
       
@@ -94,6 +115,36 @@ const Landing = () => {
               </div>
             </div>
           </motion.div>
+        </section>
+
+        {/* Active Campaigns Section */}
+        <section className="mt-24 space-y-12">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+            <div className="space-y-4">
+              <h2 className="text-4xl md:text-5xl font-black tracking-tight text-white flex items-center gap-4">
+                <Megaphone className="text-lime-400" size={32} />
+                Active <span className="text-lime-400">Campaigns</span>
+              </h2>
+              <p className="text-zinc-400 text-lg max-w-xl">
+                Browse through verified disaster relief efforts and support those in urgent need.
+              </p>
+            </div>
+            <Link to="/signup">
+              <button className="px-8 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-sm font-bold transition">
+                View All Campaigns
+              </button>
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {campaigns.length > 0 ? campaigns.map((campaign) => (
+              <CampaignCard key={campaign.id} campaign={campaign} />
+            )) : (
+              <div className="col-span-full py-20 text-center bg-white/5 rounded-[2rem] border border-white/10">
+                 <p className="text-lg font-bold text-zinc-500">No active campaigns available at the moment.</p>
+              </div>
+            )}
+          </div>
         </section>
 
         {/* Integrated Floating Metrics Dashboard Bottom Section */}

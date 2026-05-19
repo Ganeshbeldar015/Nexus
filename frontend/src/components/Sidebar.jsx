@@ -39,7 +39,7 @@ const Sidebar = ({ isOpen, toggle }) => {
 
   const adminLinks = [
     { name: 'Overview', path: '/admin-dashboard', icon: LayoutDashboard },
-    { name: 'Manage NGOs', path: '/admin-dashboard#ngos', icon: ShieldCheck },
+    { name: 'Manage NGOs', path: '/admin/ngos', icon: ShieldCheck },
     { name: 'Campaign Analytics', path: '/admin-dashboard#analytics', icon: BarChart3 },
     { name: 'All Users', path: '/admin-dashboard#users', icon: Users },
   ];

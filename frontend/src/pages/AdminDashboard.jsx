@@ -1,33 +1,88 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { mockDb } from '../services/mockDb';
+import { supabase } from '../lib/supabase';
 import { ShieldCheck, Users, BarChart3, AlertCircle, Check, X, Search } from 'lucide-react';
 import Button from '../components/Button';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 
 const AdminDashboard = () => {
-  const [ngos, setNgos] = useState(() => mockDb.getNgos());
+  const [ngos, setNgos] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [campaigns, setCampaigns] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const handleApprove = (id) => {
-    mockDb.updateNgoStatus(id, 'verified');
-    setNgos(mockDb.getNgos());
-    toast.success('NGO successfully verified!');
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      // Fetch NGOs (users with ngo role and their profile)
+      const { data: users, error: userError } = await supabase
+        .from('users')
+        .select('*, ngos(*)')
+        .eq('role', 'ngo');
+      
+      if (userError) throw userError;
+
+      const formattedNgos = users.map(u => ({
+        id: u.id,
+        name: u.ngos?.[0]?.organization_name || u.full_name,
+        email: u.email,
+        status: u.ngos?.[0]?.verification_status || 'pending',
+        joined: new Date(u.created_at).toLocaleDateString()
+      }));
+      setNgos(formattedNgos);
+
+      // Fetch Campaigns for stats
+      const { data: campaignData } = await supabase.from('campaigns').select('raised_amount');
+      if (campaignData) setCampaigns(campaignData);
+    } catch (error) {
+      console.error("Error fetching admin data:", error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleReject = (id) => {
-    mockDb.updateNgoStatus(id, 'rejected');
-    setNgos(mockDb.getNgos());
-    toast.error('NGO verification rejected.');
+  const handleApprove = async (id, name) => {
+    try {
+      const { data: existingNgo } = await supabase.from('ngos').select('id').eq('user_id', id).maybeSingle();
+      if (existingNgo) {
+        await supabase.from('ngos').update({ verification_status: 'verified' }).eq('user_id', id);
+      } else {
+        await supabase.from('ngos').insert({ user_id: id, organization_name: name, verification_status: 'verified' });
+      }
+      toast.success('NGO successfully verified!');
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to approve NGO');
+    }
+  };
+
+  const handleReject = async (id, name) => {
+    try {
+      const { data: existingNgo } = await supabase.from('ngos').select('id').eq('user_id', id).maybeSingle();
+      if (existingNgo) {
+        await supabase.from('ngos').update({ verification_status: 'rejected' }).eq('user_id', id);
+      } else {
+        await supabase.from('ngos').insert({ user_id: id, organization_name: name, verification_status: 'rejected' });
+      }
+      toast.error('NGO verification rejected.');
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to reject NGO');
+    }
   };
 
   const filteredNgos = ngos.filter(ngo => 
-    ngo.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    ngo.email.toLowerCase().includes(searchQuery.toLowerCase())
+    (ngo.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    ngo.email.toLowerCase().includes(searchQuery.toLowerCase())) &&
+    ngo.status === 'pending'
   );
 
-  const campaigns = mockDb.getCampaigns();
-  const totalRaised = campaigns.reduce((acc, c) => acc + c.raised_amount, 0);
+  const totalRaised = campaigns.reduce((acc, c) => acc + parseFloat(c.raised_amount), 0);
 
   return (
     <div className="max-w-4xl mx-auto space-y-16 py-8">
@@ -84,11 +139,11 @@ const AdminDashboard = () => {
                      <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Organization</th>
                      <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Status</th>
                      <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Date Joined</th>
-                     <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider text-right">Actions</th>
+                     <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Actions</th>
                    </tr>
                  </thead>
                  <tbody className="divide-y divide-zinc-50">
-                   {filteredNgos.map((ngo) => (
+                   {filteredNgos.length > 0 ? filteredNgos.map((ngo) => (
                      <tr key={ngo.id} className="hover:bg-zinc-50/50 transition-colors group">
                        <td className="px-6 py-5">
                          <div>
@@ -109,10 +164,10 @@ const AdminDashboard = () => {
                        </td>
                        <td className="px-6 py-5 text-sm font-medium text-zinc-500">{ngo.joined}</td>
                        <td className="px-6 py-5 text-right">
-                         <div className="flex justify-end gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                         <div className="flex justify-end gap-2 transition-opacity">
                            {ngo.status !== 'verified' && (
                              <button 
-                               onClick={() => handleApprove(ngo.id)}
+                               onClick={() => handleApprove(ngo.id, ngo.name)}
                                className="p-2.5 bg-zinc-100 text-black rounded-xl hover:bg-black hover:text-white transition-all shadow-sm"
                                title="Approve NGO"
                              >
@@ -121,7 +176,7 @@ const AdminDashboard = () => {
                            )}
                            {ngo.status !== 'rejected' && (
                              <button 
-                               onClick={() => handleReject(ngo.id)}
+                               onClick={() => handleReject(ngo.id, ngo.name)}
                                className="p-2.5 bg-zinc-100 text-black rounded-xl hover:bg-black hover:text-white transition-all shadow-sm"
                                title="Reject NGO"
                              >
@@ -131,7 +186,13 @@ const AdminDashboard = () => {
                          </div>
                        </td>
                      </tr>
-                   ))}
+                   )) : (
+                    <tr>
+                      <td colSpan="4" className="px-6 py-12 text-center text-zinc-500 font-medium text-sm">
+                        No pending NGO verification requests.
+                      </td>
+                    </tr>
+                   )}
                  </tbody>
                </table>
              </div>

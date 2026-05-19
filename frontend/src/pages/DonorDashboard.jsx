@@ -1,15 +1,56 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { mockDb } from '../services/mockDb';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 import CampaignCard from '../components/CampaignCard';
-import { Wallet, History, Heart, ArrowUpRight } from 'lucide-react';
+import { Wallet, History, Heart, ArrowUpRight, Megaphone } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const DonorDashboard = () => {
   const { user } = useAuth();
-  const campaigns = mockDb.getCampaigns();
-  const myDonations = mockDb.getDonationsByDonor(user?.id);
-  const totalDonated = myDonations.reduce((acc, d) => acc + d.amount, 0);
+  const [campaigns, setCampaigns] = useState([]);
+  const [myDonations, setMyDonations] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!user) return;
+      try {
+        // Fetch all campaigns
+        const { data: campaignData } = await supabase
+          .from('campaigns')
+          .select('*')
+          .order('created_at', { ascending: false });
+        
+        if (campaignData) setCampaigns(campaignData);
+
+        // Fetch user donations
+        const { data: donationData } = await supabase
+          .from('donation_logs')
+          .select('*, campaigns(*)')
+          .eq('donor_id', user.id)
+          .order('created_at', { ascending: false });
+
+        if (donationData) setMyDonations(donationData);
+      } catch (error) {
+        console.error("Error fetching donor data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [user]);
+
+  const totalDonated = myDonations.reduce((acc, d) => acc + parseFloat(d.amount), 0);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <div className="w-8 h-8 border-4 border-black border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto space-y-16 py-8">
@@ -41,6 +82,27 @@ const DonorDashboard = () => {
         </div>
       </div>
 
+      {/* Active Campaigns to Explore */}
+      <div className="space-y-8">
+        <div className="flex items-center justify-between border-b border-zinc-100 pb-4">
+          <h3 className="text-2xl font-black text-black flex items-center gap-3">
+            <Megaphone className="text-zinc-400" />
+            Explore Campaigns
+          </h3>
+          <Link to="/" className="text-sm font-bold text-zinc-500 hover:text-black transition-colors">View All</Link>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {campaigns.length > 0 ? campaigns.map((campaign) => (
+            <CampaignCard key={campaign.id} campaign={campaign} />
+          )) : (
+            <div className="col-span-full py-20 text-center bg-zinc-50 rounded-[2rem] border border-zinc-100">
+               <p className="text-lg font-bold text-zinc-500">No active campaigns available.</p>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Donation History */}
       <div className="space-y-6">
         <div className="flex items-center justify-between border-b border-zinc-100 pb-4">
@@ -52,7 +114,7 @@ const DonorDashboard = () => {
            {myDonations.length > 0 ? (
              <div className="divide-y divide-zinc-100">
                {myDonations.map((d) => {
-                 const campaign = campaigns.find(c => c.id === d.campaign_id);
+                 const campaign = d.campaigns;
                  return (
                    <div key={d.id} className="py-6 flex items-center justify-between group">
                       <div className="flex items-center gap-6">
@@ -63,7 +125,7 @@ const DonorDashboard = () => {
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="text-xl font-black text-black">+${d.amount.toLocaleString()}</p>
+                        <p className="text-xl font-black text-black">+${parseFloat(d.amount).toLocaleString()}</p>
                         <p className="text-xs text-zinc-400 font-bold uppercase tracking-widest mt-1">{new Date(d.created_at).toLocaleDateString()}</p>
                       </div>
                    </div>
