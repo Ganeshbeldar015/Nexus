@@ -45,6 +45,10 @@ contract NGORegistry {
         emit NGOVerified(_ngoWallet);
     }
 
+    function isVerifiedNGO(address _ngoWallet) public view returns (bool) {
+        return ngos[_ngoWallet].verified;
+    }
+
     function getNGO(address _wallet)
         public
         view
