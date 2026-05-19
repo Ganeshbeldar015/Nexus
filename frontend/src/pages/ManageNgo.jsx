@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 import { mockDb } from '../services/mockDb';
 import { 
   Building2, 
@@ -41,20 +42,69 @@ const ManageNgo = () => {
   const [editWallet, setEditWallet] = useState('');
   const [editDescription, setEditDescription] = useState('');
 
-  useEffect(() => {
-    const data = mockDb.getNgoById(id);
-    if (data) {
-      setNgo(data);
-      setEditName(data.name);
-      setEditEmail(data.email || '');
-      setEditWallet(data.wallet_address || '');
-      setEditDescription(data.description || '');
+  const [loading, setLoading] = useState(true);
 
-      // Load campaigns for this NGO
-      const allCampaigns = mockDb.getCampaigns().filter(c => c.ngo_id === id);
-      setCampaigns(allCampaigns);
-    }
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const { data: userProfile, error } = await supabase
+          .from('users')
+          .select(`
+            id,
+            full_name,
+            email,
+            wallet_address,
+            created_at,
+            ngos (
+              verification_status,
+              organization_name
+            )
+          `)
+          .eq('id', id)
+          .single();
+
+        if (error) throw error;
+
+        const ngoRow = Array.isArray(userProfile.ngos) ? userProfile.ngos[0] : userProfile.ngos;
+        
+        const formattedNgo = {
+          id: userProfile.id,
+          name: ngoRow?.organization_name || userProfile.full_name,
+          email: userProfile.email,
+          wallet_address: userProfile.wallet_address,
+          description: '', 
+          status: ngoRow?.verification_status || 'pending',
+          joined: new Date(userProfile.created_at).toLocaleDateString()
+        };
+
+        setNgo(formattedNgo);
+        setEditName(formattedNgo.name);
+        setEditEmail(formattedNgo.email || '');
+        setEditWallet(formattedNgo.wallet_address || '');
+        setEditDescription('');
+
+      } catch (err) {
+        console.error('Error fetching profile:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProfile();
+
+    // Load campaigns for this NGO
+    const allCampaigns = mockDb.getCampaigns().filter(c => c.ngo_id === id);
+    setCampaigns(allCampaigns);
   }, [id]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-32 px-4 space-y-6">
+        <div className="w-8 h-8 border-4 border-black border-t-transparent rounded-full animate-spin"></div>
+        <h2 className="text-xl font-bold text-slate-900">Loading Profile...</h2>
+      </div>
+    );
+  }
 
   if (!ngo) {
     return (
@@ -70,17 +120,26 @@ const ManageNgo = () => {
   const isOwnNgo = user?.role === 'ngo' && user?.id === ngo.id;
   const canEdit = isAdmin || isOwnNgo;
 
-  const handleStatusChange = (newStatus) => {
-    mockDb.updateNgoStatus(id, newStatus);
-    const updated = mockDb.getNgoById(id);
-    setNgo(updated);
-    
-    if (newStatus === 'verified') {
-      toast.success('NGO verification approved!');
-    } else if (newStatus === 'rejected') {
-      toast.error('NGO status set to Rejected.');
-    } else {
-      toast.info('NGO status set to Pending.');
+  const handleStatusChange = async (newStatus) => {
+    try {
+      const { data: existingNgo } = await supabase.from('ngos').select('id').eq('user_id', id).maybeSingle();
+      if (existingNgo) {
+        await supabase.from('ngos').update({ verification_status: newStatus }).eq('user_id', id);
+      } else {
+        await supabase.from('ngos').insert({ user_id: id, organization_name: ngo.name, verification_status: newStatus });
+      }
+      setNgo(prev => ({ ...prev, status: newStatus }));
+      
+      if (newStatus === 'verified') {
+        toast.success('NGO verification approved!');
+      } else if (newStatus === 'rejected') {
+        toast.error('NGO status set to Rejected.');
+      } else {
+        toast.info('NGO status set to Pending.');
+      }
+    } catch (error) {
+      toast.error('Failed to change status');
+      console.error(error);
     }
   };
 
@@ -92,21 +151,35 @@ const ManageNgo = () => {
     }
 
     setSaveLoading(true);
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 800));
 
     try {
-      const updated = mockDb.updateNgoDetails(id, {
+      // Update users table
+      const { error: userError } = await supabase
+        .from('users')
+        .update({ wallet_address: editWallet, email: editEmail, full_name: editName })
+        .eq('id', id);
+      if (userError) throw userError;
+
+      // Update ngos table
+      const { data: existingNgo } = await supabase.from('ngos').select('id').eq('user_id', id).maybeSingle();
+      if (existingNgo) {
+        await supabase.from('ngos').update({ organization_name: editName }).eq('user_id', id);
+      } else {
+        await supabase.from('ngos').insert({ user_id: id, organization_name: editName, verification_status: 'pending' });
+      }
+
+      setNgo(prev => ({
+        ...prev,
         name: editName,
         email: editEmail,
         wallet_address: editWallet,
         description: editDescription
-      });
-      setNgo(updated);
+      }));
       setIsEditing(false);
       toast.success('NGO Profile updated successfully!');
     } catch (err) {
       toast.error('Failed to update details');
+      console.error(err);
     } finally {
       setSaveLoading(false);
     }

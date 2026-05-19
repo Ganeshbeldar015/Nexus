@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { mockDb } from '../services/mockDb';
+import { supabase } from '../lib/supabase';
 import { 
   ShieldCheck, 
   Search, 
@@ -30,52 +30,100 @@ const AdminNgoManagement = () => {
   const [newDescription, setNewDescription] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    setNgos(mockDb.getNgos());
-  }, []);
+  const [loading, setLoading] = useState(true);
 
-  const handleApprove = (id) => {
-    mockDb.updateNgoStatus(id, 'verified');
-    setNgos(mockDb.getNgos());
-    toast.success('NGO verification approved.');
+  const fetchNgos = async () => {
+    try {
+      setLoading(true);
+      const { data: users, error } = await supabase
+        .from('users')
+        .select(`
+          id,
+          full_name,
+          email,
+          wallet_address,
+          created_at,
+          ngos (
+            verification_status,
+            organization_name
+          )
+        `)
+        .eq('role', 'ngo');
+
+      if (error) throw error;
+
+      const formattedNgos = users.map(user => {
+        const ngoProfile = Array.isArray(user.ngos) ? user.ngos[0] : user.ngos;
+        return {
+          id: user.id,
+          name: ngoProfile?.organization_name || user.full_name,
+          email: user.email,
+          wallet_address: user.wallet_address,
+          status: ngoProfile?.verification_status || 'pending',
+          joined: new Date(user.created_at).toLocaleDateString(),
+        };
+      });
+
+      setNgos(formattedNgos);
+    } catch (error) {
+      console.error('Error fetching NGOs:', error);
+      toast.error('Failed to load NGOs');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleReject = (id) => {
-    mockDb.updateNgoStatus(id, 'rejected');
-    setNgos(mockDb.getNgos());
-    toast.error('NGO status set to Rejected.');
+  useEffect(() => {
+    fetchNgos();
+  }, []);
+
+  const handleApprove = async (id, name) => {
+    try {
+      const { data: existingNgo } = await supabase.from('ngos').select('id').eq('user_id', id).maybeSingle();
+      if (existingNgo) {
+        const { error } = await supabase.from('ngos').update({ verification_status: 'verified' }).eq('user_id', id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('ngos').insert({
+          user_id: id,
+          organization_name: name,
+          verification_status: 'verified'
+        });
+        if (error) throw error;
+      }
+      toast.success('NGO verification approved.');
+      fetchNgos();
+    } catch (error) {
+      toast.error('Failed to approve NGO');
+      console.error(error);
+    }
+  };
+
+  const handleReject = async (id, name) => {
+    try {
+      const { data: existingNgo } = await supabase.from('ngos').select('id').eq('user_id', id).maybeSingle();
+      if (existingNgo) {
+        const { error } = await supabase.from('ngos').update({ verification_status: 'rejected' }).eq('user_id', id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('ngos').insert({
+          user_id: id,
+          organization_name: name,
+          verification_status: 'rejected'
+        });
+        if (error) throw error;
+      }
+      toast.error('NGO status set to Rejected.');
+      fetchNgos();
+    } catch (error) {
+      toast.error('Failed to reject NGO');
+      console.error(error);
+    }
   };
 
   const handleAddNgo = async (e) => {
     e.preventDefault();
-    if (!newName.trim() || !newEmail.trim()) {
-      toast.error('Organization Name and Email are required.');
-      return;
-    }
-
-    setIsSubmitting(true);
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 600));
-
-    try {
-      mockDb.addNgo({
-        name: newName,
-        email: newEmail,
-        wallet_address: newWallet,
-        description: newDescription
-      });
-      setNgos(mockDb.getNgos());
-      toast.success('NGO manually registered successfully!');
-      setShowAddModal(false);
-      setNewName('');
-      setNewEmail('');
-      setNewWallet('');
-      setNewDescription('');
-    } catch (err) {
-      toast.error('Failed to register NGO.');
-    } finally {
-      setIsSubmitting(false);
-    }
+    toast.error('Manual registration requires Admin API. Please have the NGO sign up normally.');
   };
 
   const copyToClipboard = (text) => {
@@ -218,10 +266,10 @@ const AdminNgoManagement = () => {
                   <td className="px-6 py-5 text-sm font-medium text-zinc-500">{ngo.joined}</td>
                   <td className="px-6 py-5 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <div className="flex gap-2 opacity-100 lg:opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex gap-2 transition-opacity">
                         {ngo.status !== 'verified' && (
                           <button 
-                            onClick={() => handleApprove(ngo.id)}
+                            onClick={() => handleApprove(ngo.id, ngo.name)}
                             className="p-2 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm border border-emerald-100"
                             title="Verify NGO"
                           >
@@ -230,7 +278,7 @@ const AdminNgoManagement = () => {
                         )}
                         {ngo.status !== 'rejected' && (
                           <button 
-                            onClick={() => handleReject(ngo.id)}
+                            onClick={() => handleReject(ngo.id, ngo.name)}
                             className="p-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-600 hover:text-white transition-all shadow-sm border border-red-100"
                             title="Reject/Suspend NGO"
                           >

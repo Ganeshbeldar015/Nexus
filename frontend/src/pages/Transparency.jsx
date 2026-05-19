@@ -1,20 +1,55 @@
-import React from 'react';
-import { mockDb } from '../services/mockDb';
-import { Globe, ShieldCheck, History, ExternalLink, Search } from 'lucide-react';
-import Input from '../components/Input';
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
+import { ShieldCheck as ShieldIcon, History as HistoryIcon, ExternalLink as ExternalIcon, Search as SearchIcon } from 'lucide-react';
 
 const Transparency = () => {
-  const donations = mockDb.getDonations();
-  const campaigns = mockDb.getCampaigns();
-  
-  const totalDonations = campaigns.reduce((acc, c) => acc + c.raised_amount, 0);
+  const [donations, setDonations] = useState([]);
+  const [campaigns, setCampaigns] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const { data: campaignData } = await supabase
+          .from('campaigns')
+          .select('*');
+        
+        if (campaignData) setCampaigns(campaignData);
+
+        const { data: donationData } = await supabase
+          .from('donation_logs')
+          .select('*, campaigns(title)')
+          .order('created_at', { ascending: false });
+
+        if (donationData) setDonations(donationData);
+      } catch (error) {
+        console.error("Error fetching transparency data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  const totalDonations = campaigns.reduce((acc, c) => acc + parseFloat(c.raised_amount), 0);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <div className="w-8 h-8 border-4 border-black border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-12 space-y-12">
       <div className="text-center space-y-4">
         <h1 className="text-4xl font-bold text-slate-900">Transparency Dashboard</h1>
         <p className="text-slate-500 max-w-2xl mx-auto text-lg">
-          Live tracking of all platform activities. We ensure every transaction is publicly verifiable on the blockchain.
+          Track every donation, campaign update, and fund utilization in real time through our public transparency dashboard. Every transaction is securely recorded on the blockchain, making relief efforts fully verifiable, accountable, and impossible to manipulate.
+
+From donation inflows to NGO spending records, anyone can monitor how funds are being used during disasters — building trust through complete transparency.
         </p>
       </div>
 
@@ -38,11 +73,11 @@ const Transparency = () => {
         <div className="lg:col-span-2 space-y-6">
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-              <History className="text-black" />
+              <HistoryIcon className="text-black" />
               Public Ledger
             </h2>
             <div className="relative w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input 
                 type="text" 
                 placeholder="Search tx hash..." 
@@ -64,20 +99,20 @@ const Transparency = () => {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {donations.length > 0 ? donations.map((tx) => {
-                    const campaign = campaigns.find(c => c.id === tx.campaign_id);
+                    const campaignTitle = tx.campaigns?.title || 'Unknown';
                     return (
                       <tr key={tx.id} className="hover:bg-slate-50 transition-colors">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2 font-mono text-sm text-zinc-900">
                             <span className="truncate w-32">{tx.tx_hash}</span>
-                            <ExternalLink size={14} className="shrink-0" />
+                            <ExternalIcon size={14} className="shrink-0" />
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="text-sm font-semibold text-slate-700">{campaign?.title || 'Unknown'}</span>
+                          <span className="text-sm font-semibold text-slate-700">{campaignTitle}</span>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="text-sm font-bold text-slate-900">${tx.amount.toLocaleString()}</span>
+                          <span className="text-sm font-bold text-slate-900">${parseFloat(tx.amount).toLocaleString()}</span>
                         </td>
                         <td className="px-6 py-4">
                           <span className="px-2 py-1 bg-zinc-100 text-zinc-900 rounded-full text-[10px] font-bold uppercase tracking-wider">
@@ -104,7 +139,7 @@ const Transparency = () => {
           <div className="bg-black rounded-3xl p-8 text-white space-y-6 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 blur-3xl" />
             <h3 className="text-xl font-bold flex items-center gap-2">
-              <ShieldCheck className="text-zinc-400" />
+              <ShieldIcon className="text-zinc-400" />
               Verified NGO List
             </h3>
             <p className="text-zinc-500 text-sm leading-relaxed">
@@ -114,7 +149,7 @@ const Transparency = () => {
               {['Red Cross International', 'Save the Children', 'Global Relief Fund'].map((ngo, i) => (
                 <div key={i} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
                   <span className="text-sm font-medium">{ngo}</span>
-                  <ShieldCheck size={16} className="text-zinc-500" />
+                  <ShieldIcon size={16} className="text-zinc-500" />
                 </div>
               ))}
             </div>
@@ -138,4 +173,10 @@ const Transparency = () => {
   );
 };
 
+<<<<<<< HEAD
 export default Transparency;
+
+
+=======
+export default Transparency;
+>>>>>>> 01701fd (ngo manage)

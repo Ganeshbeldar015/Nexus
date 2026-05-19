@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { mockDb } from '../services/mockDb';
 import { useAuth } from '../context/AuthContext';
-import { Megaphone, Plus, FileText, Trash2 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { Megaphone, Plus, FileText, Trash2, AlertCircle } from 'lucide-react';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import { useForm } from 'react-hook-form';
@@ -19,9 +20,46 @@ const campaignSchema = z.object({
   const NgoDashboard = () => {
     const { user } = useAuth();
     const [showCreateModal, setShowCreateModal] = useState(false);
-    const myCampaigns = mockDb.getCampaigns().filter(c => c.ngo_id === user?.id || c.ngo_id === 'ngo-1');
-    const ngoData = mockDb.getNgoById(user?.id);
-    const isVerified = ngoData?.status === 'verified';
+    const [status, setStatus] = useState('pending');
+    const [loading, setLoading] = useState(true);
+    const [ngoId, setNgoId] = useState(null);
+    const [campaigns, setCampaigns] = useState([]);
+    
+    useEffect(() => {
+      const fetchNgoData = async () => {
+        if (!user) return;
+        try {
+          // Fetch NGO record to get status and internal ID
+          const { data, error } = await supabase
+            .from('ngos')
+            .select('id, verification_status')
+            .eq('user_id', user.id)
+            .maybeSingle();
+            
+          if (data) {
+            setStatus(data.verification_status);
+            setNgoId(data.id);
+            
+            // If verified, fetch campaigns
+            if (data.verification_status === 'verified') {
+              const { data: campaignData } = await supabase
+                .from('campaigns')
+                .select('*')
+                .eq('ngo_id', data.id)
+                .order('created_at', { ascending: false });
+                
+              if (campaignData) setCampaigns(campaignData);
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching NGO data:", error);
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      fetchNgoData();
+    }, [user]);
     
     const {
       register,
@@ -32,15 +70,78 @@ const campaignSchema = z.object({
       resolver: zodResolver(campaignSchema),
     });
   
-    const onSubmit = (data) => {
-      mockDb.addCampaign({
-        ...data,
-        ngo_id: user.id
-      });
-      toast.success('Campaign created successfully!');
-      setShowCreateModal(false);
-      reset();
+    const onSubmit = async (data) => {
+      if (!ngoId) {
+        toast.error('NGO profile not found');
+        return;
+      }
+
+      try {
+        const { data: newCampaign, error } = await supabase
+          .from('campaigns')
+          .insert({
+            ...data,
+            ngo_id: ngoId,
+            raised_amount: 0
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        toast.success('Campaign created successfully!');
+        setCampaigns([newCampaign, ...campaigns]);
+        setShowCreateModal(false);
+        reset();
+      } catch (error) {
+        console.error('Error creating campaign:', error);
+        toast.error('Failed to create campaign');
+      }
     };
+
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center py-32">
+          <div className="w-8 h-8 border-4 border-black border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      );
+    }
+
+    if (status === 'rejected') {
+      return (
+        <div className="max-w-3xl mx-auto space-y-16 py-16 px-4">
+          <div className="text-center space-y-6 py-16 bg-red-50/50 rounded-[3rem] border border-red-200 shadow-sm">
+            <div className="mx-auto w-24 h-24 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-2 shadow-inner">
+              <AlertCircle size={48} strokeWidth={2.5} />
+            </div>
+            <div className="space-y-4 max-w-xl mx-auto px-6">
+              <h1 className="text-3xl md:text-4xl font-black text-black tracking-tight">Application Rejected</h1>
+              <p className="text-base md:text-lg text-red-900 leading-relaxed opacity-90">
+                Your NGO account application has been rejected by the administrator. You do not have access to dashboard features.
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (status !== 'verified') {
+      return (
+        <div className="max-w-3xl mx-auto space-y-16 py-16 px-4">
+          <div className="text-center space-y-6 py-16 bg-amber-50/50 rounded-[3rem] border border-amber-200 shadow-sm">
+            <div className="mx-auto w-24 h-24 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mb-2 shadow-inner">
+              <AlertCircle size={48} strokeWidth={2.5} />
+            </div>
+            <div className="space-y-4 max-w-xl mx-auto px-6">
+              <h1 className="text-3xl md:text-4xl font-black text-black tracking-tight">Verification Pending</h1>
+              <p className="text-base md:text-lg text-amber-900 leading-relaxed opacity-90">
+                Your NGO account is currently under review. You do not have access to dashboard features until an administrator approves your request.
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
   
     return (
       <div className="max-w-3xl mx-auto space-y-16 py-8">
@@ -52,25 +153,14 @@ const campaignSchema = z.object({
           </div>
           <div className="flex justify-center flex-col items-center gap-3">
             <Button 
-              onClick={() => {
-                if (isVerified) {
-                  setShowCreateModal(true);
-                } else {
-                  toast.error('Your NGO must be verified by an admin before you can launch campaigns.');
-                }
-              }}
+              onClick={() => setShowCreateModal(true)}
               className="rounded-full px-8"
               size="lg"
-              variant={isVerified ? 'primary' : 'secondary'}
+              variant="primary"
             >
               <Plus size={20} />
               Launch New Campaign
             </Button>
-            {!isVerified && (
-              <p className="text-xs font-bold text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full">
-                Verification Pending
-              </p>
-            )}
           </div>
         </div>
 
@@ -82,7 +172,7 @@ const campaignSchema = z.object({
         </h3>
 
         <div className="space-y-6">
-          {myCampaigns.length > 0 ? myCampaigns.map((campaign) => {
+          {campaigns.length > 0 ? campaigns.map((campaign) => {
              const progress = (campaign.raised_amount / campaign.goal_amount) * 100;
              return (
                <div key={campaign.id} className="flex flex-col sm:flex-row gap-6 p-6 rounded-[2rem] border border-zinc-100 hover:border-zinc-200 transition-all bg-white group">
