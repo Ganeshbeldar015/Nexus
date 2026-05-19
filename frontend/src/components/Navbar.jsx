@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Heart, LogIn, LogOut, Menu, User, X } from 'lucide-react';
 import { useState } from 'react';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 
 const Navbar = () => {
   const { user, logout } = useAuth();
@@ -28,10 +29,12 @@ const Navbar = () => {
           </Link>
 
           {/* Desktop Nav */}
-          <div className="hidden md:flex items-center gap-8 text-sm font-medium">
+          <div className="hidden md:flex items-center gap-6 text-sm font-medium">
             <Link to="/" className="text-slate-600 hover:text-primary-600 transition-colors">Home</Link>
             <Link to="/transparency" className="text-slate-600 hover:text-primary-600 transition-colors">Transparency</Link>
             
+            <ConnectButton accountStatus="avatar" chainStatus="icon" />
+
             {user ? (
               <div className="flex items-center gap-4">
                 <Link 
@@ -84,6 +87,11 @@ const Navbar = () => {
         <div className="md:hidden bg-white border-b border-slate-200 py-4 px-4 space-y-4 animate-in slide-in-from-top duration-300">
           <Link to="/" className="block text-slate-600 py-2">Home</Link>
           <Link to="/transparency" className="block text-slate-600 py-2">Transparency</Link>
+          
+          <div className="py-2">
+            <ConnectButton accountStatus="avatar" chainStatus="icon" />
+          </div>
+
           <div className="pt-4 border-t border-slate-100 space-y-4">
             {user ? (
               <>

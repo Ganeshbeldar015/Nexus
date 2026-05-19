@@ -173,10 +173,7 @@ From donation inflows to NGO spending records, anyone can monitor how funds are 
   );
 };
 
-<<<<<<< HEAD
+
 export default Transparency;
 
 
-=======
-export default Transparency;
->>>>>>> 01701fd (ngo manage)
