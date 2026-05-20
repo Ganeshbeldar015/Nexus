@@ -2,8 +2,10 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract Donation {
+contract Donation is Ownable {
     struct Campaign {
         uint256 id;
         address ngo;
@@ -35,14 +37,21 @@ contract Donation {
     mapping(uint256 => Campaign) public campaigns;
     mapping(uint256 => UsageRecord[]) public usageRecords;
     mapping(uint256 => DonationRecord[]) public donationHistory;
+    mapping(address => bool) public verifiedNgos;
 
     event CampaignCreated(uint256 indexed id, address indexed ngo, string title);
     event Donated(uint256 indexed campaignId, address indexed donor, uint256 amount, string message);
     event FundsWithdrawn(uint256 indexed campaignId, uint256 amount);
     event UsageRecordAdded(uint256 indexed campaignId, uint256 amount, string description);
+    event NgoVerified(address indexed ngo, bool status);
 
-    constructor(address _donationToken) {
+    constructor(address _donationToken) Ownable(msg.sender) {
         donationToken = IERC20(_donationToken);
+    }
+
+    function verifyNgo(address _ngo, bool _status) public onlyOwner {
+        verifiedNgos[_ngo] = _status;
+        emit NgoVerified(_ngo, _status);
     }
 
     function createCampaign(
@@ -50,6 +59,7 @@ contract Donation {
         string memory _description,
         uint256 _targetAmount
     ) public {
+        require(verifiedNgos[msg.sender], "Only verified NGOs can create campaigns");
         campaignCount++;
         campaigns[campaignCount] = Campaign(
             campaignCount,
@@ -71,6 +81,43 @@ contract Donation {
 
         // Note: For UGF integration, the transfer should be handled by UGF's settlement
         // This function will be called via UGF's sponsored execution
+        donationToken.transferFrom(msg.sender, address(this), _amount);
+
+        campaigns[_campaignId].raisedAmount += _amount;
+
+        donationHistory[_campaignId].push(DonationRecord(
+            msg.sender,
+            _amount,
+            block.timestamp,
+            _message
+        ));
+
+        emit Donated(_campaignId, msg.sender, _amount, _message);
+    }
+
+    function donateToCampaignWithPermit(
+        uint256 _campaignId,
+        uint256 _amount,
+        string memory _message,
+        uint256 _deadline,
+        uint8 _v,
+        bytes32 _r,
+        bytes32 _s
+    ) public {
+        require(campaigns[_campaignId].active, "Campaign is not active");
+        require(_amount > 0, "Amount must be > 0");
+
+        // Execute permit (off-chain signature becomes on-chain approval)
+        IERC20Permit(address(donationToken)).permit(
+            msg.sender,
+            address(this),
+            _amount,
+            _deadline,
+            _v,
+            _r,
+            _s
+        );
+
         donationToken.transferFrom(msg.sender, address(this), _amount);
 
         campaigns[_campaignId].raisedAmount += _amount;

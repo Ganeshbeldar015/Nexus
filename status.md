@@ -45,9 +45,11 @@ Nexus/
   - Features: Campaign creation, donations, fund withdrawal, usage records
   - Uses OpenZeppelin contracts
   - ERC20 token donation (transferFrom) - NO ETH payable functions
+  - **EIP-2612 Permit support** for single-transaction donations
   - Accepts official TYI_MOCK_USD token address in constructor
   - Fully UGF-compatible!
-- **TestToken.sol**: Simple ERC20 token for LOCAL TESTING ONLY
+- **TestToken.sol**: ERC20 token for LOCAL TESTING ONLY
+  - **EIP-2612 Permit support** for testing permit flows locally
   - Not for production/hackathon use
   - For local development and testing only
 
