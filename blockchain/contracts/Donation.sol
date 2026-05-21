@@ -69,8 +69,6 @@ contract Donation {
         require(campaigns[_campaignId].active, "Campaign is not active");
         require(_amount > 0, "Amount must be > 0");
 
-        // Note: For UGF integration, the transfer should be handled by UGF's settlement
-        // This function will be called via UGF's sponsored execution
         donationToken.transferFrom(msg.sender, address(this), _amount);
 
         campaigns[_campaignId].raisedAmount += _amount;
@@ -83,6 +81,29 @@ contract Donation {
         ));
 
         emit Donated(_campaignId, msg.sender, _amount, _message);
+    }
+
+    function donateToCampaignWithTransfer(
+        uint256 _campaignId,
+        address _donor,
+        uint256 _amount,
+        string memory _message
+    ) public {
+        require(campaigns[_campaignId].active, "Campaign is not active");
+        require(_amount > 0, "Amount must be > 0");
+
+        // For UGF integration: UGF handles the token transfer to this contract first
+        // This function records the donation without needing a separate transferFrom call
+        campaigns[_campaignId].raisedAmount += _amount;
+
+        donationHistory[_campaignId].push(DonationRecord(
+            _donor,
+            _amount,
+            block.timestamp,
+            _message
+        ));
+
+        emit Donated(_campaignId, _donor, _amount, _message);
     }
 
     function withdrawFunds(uint256 _campaignId, uint256 _amount) public {
