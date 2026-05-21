@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Heart, LogOut, Menu, User, X, Sparkles } from 'lucide-react';
 import { useState } from 'react';
@@ -7,6 +7,7 @@ import { useState } from 'react';
 const Navbar = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const handleLogout = () => {
@@ -15,7 +16,13 @@ const Navbar = () => {
   };
 
   return (
-    <nav className="absolute w-full left-0 top-0 z-50 bg-transparent">
+    <nav
+ className={`absolute w-full left-0 top-0 z-50 ${
+  location.pathname === '/transparency'
+    ? 'bg-black shadow-lg'
+    : 'bg-transparent'
+}`}
+>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-20 items-center">
           
@@ -36,7 +43,7 @@ const Navbar = () => {
           <div className="hidden md:flex items-center gap-10 text-sm font-black uppercase tracking-widest">
             {user?.role !== 'ngo' && (
               <>
-                <Link to="/" className="text-zinc-400 hover:text-white transition-all hover:scale-105">Home</Link>
+                <Link to="/" className="text-zinc-400  hover:text-lime-400 transition-all hover:scale-105">Home</Link>
                 <Link to="/transparency" className="text-zinc-400 hover:text-lime-400 transition-all hover:scale-105 flex items-center gap-1.5">
                   <Sparkles size={16} className="mb-0.5" />
                   Transparency

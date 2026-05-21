@@ -36,6 +36,7 @@ const Transparency = () => {
 
   if (loading) {
     return (
+      
       <div className="flex items-center justify-center py-32">
         <div className="w-8 h-8 border-4 border-black border-t-transparent rounded-full animate-spin"></div>
       </div>
@@ -43,7 +44,7 @@ const Transparency = () => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-12 space-y-12">
+    <div className="max-w-7xl mx-auto px-4 pt-32 pb-12 space-y-12">
       <div className="text-center space-y-4">
         <h1 className="text-4xl font-bold text-slate-900">Transparency Dashboard</h1>
         <p className="text-slate-500 max-w-2xl mx-auto text-lg">
