@@ -11,11 +11,6 @@ const Landing = () => {
   const { user } = useAuth();
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  if (user?.role === 'ngo') {
-    return <Navigate to="/ngo-dashboard" replace />;
-  }
-
   useEffect(() => {
     const fetchCampaigns = async () => {
       try {
@@ -32,6 +27,11 @@ const Landing = () => {
     };
     fetchCampaigns();
   }, []);
+
+  if (user?.role === 'ngo') {
+    return <Navigate to="/ngo-dashboard" replace />;
+  }
+
   return (
     <div className="relative min-h-screen overflow-hidden bg-black text-white antialiased font-sans">
       
