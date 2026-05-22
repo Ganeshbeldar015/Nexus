@@ -30,11 +30,7 @@ import { CONTRACT_ADDRESSES } from './contracts';
 import DonationABI from './abi/Donation.json';
 import MockUSDABI from './abi/MockUSD.json';
 import { encodeFunctionData } from 'viem';
-<<<<<<< HEAD
-import { Contract, Signature, ethers } from 'ethers';
-=======
 import { ethers } from 'ethers';
->>>>>>> 83043256144952cb3c70cce543ec1b7f69edf6d6
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -297,11 +293,7 @@ export async function donateWithUGF({ signer, provider, campaignId, amount, mess
   }
   progress('auth', { status: 'Authenticated' });
 
-<<<<<<< HEAD
-  // 2. Sign Permit (Gasless Approval)
-=======
   // 2. Obtain EIP-2612 Permit Signature (Gasless Approval)
->>>>>>> 83043256144952cb3c70cce543ec1b7f69edf6d6
   progress('permit_signing', { status: 'Please sign the gasless MockUSD approval in your wallet...' });
 
   let amountWei;
@@ -364,11 +356,7 @@ export async function donateWithUGF({ signer, provider, campaignId, amount, mess
     deadline: deadline,
   };
 
-<<<<<<< HEAD
-  // Sign typed data using the ethers signer
-=======
   // Sign the typed permit data
->>>>>>> 83043256144952cb3c70cce543ec1b7f69edf6d6
   const signature = await signer.signTypedData(domain, types, value);
   const sig = ethers.Signature.from(signature);
   progress('permit_signing', { status: 'MockUSD Permit approved!' });
