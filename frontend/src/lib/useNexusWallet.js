@@ -36,9 +36,25 @@ export function useNexusWallet() {
       return getDevSigner(provider);
     }
     
-    if (!wagmiWalletClient) throw new Error('Wallet not connected');
-    const provider = new BrowserProvider(wagmiWalletClient.transport);
-    return provider.getSigner();
+    if (!wagmiWalletClient) throw new Error('Wallet not connected. Please connect your wallet first.');
+    
+    // Convert wagmi's wallet client to ethers signer
+    // wagmiWalletClient exposes an EIP-1193 compatible transport
+    try {
+      // Try using the wallet client's transport directly
+      const provider = new BrowserProvider(wagmiWalletClient.transport || wagmiWalletClient);
+      return await provider.getSigner();
+    } catch (err) {
+      console.warn('Failed to create signer from wallet client transport, trying window.ethereum:', err);
+      
+      // Fallback: use window.ethereum if available
+      if (typeof window !== 'undefined' && window.ethereum) {
+        const provider = new BrowserProvider(window.ethereum);
+        return await provider.getSigner();
+      }
+      
+      throw new Error('Could not create wallet signer. Please ensure your wallet extension is installed and connected.');
+    }
   }, [wagmiWalletClient, active]);
 
   const disconnect = useCallback(() => {
@@ -61,5 +77,8 @@ export function useNexusWallet() {
     isDevWalletEnabled: enabled,
     connectDevWallet: connectDev,
     disconnect,
+    // Expose wagmi status for UI feedback
+    isConnecting: wagmiAccount.isConnecting,
+    isReconnecting: wagmiAccount.isReconnecting,
   };
 }

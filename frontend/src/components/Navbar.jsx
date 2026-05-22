@@ -1,14 +1,17 @@
 import React from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Heart, LogOut, Menu, User, X, Sparkles } from 'lucide-react';
+import { Heart, LogOut, Menu, User, X, Sparkles, Wallet } from 'lucide-react';
 import { useState } from 'react';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { useNexusWallet } from '../lib/useNexusWallet';
 
 const Navbar = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { isConnected, address, isDevWallet, isDevWalletEnabled, connectDevWallet, disconnect } = useNexusWallet();
 
   const handleLogout = () => {
     logout();
@@ -40,7 +43,7 @@ const Navbar = () => {
           </Link>
 
           {/* Desktop Nav */}
-          <div className="hidden md:flex items-center gap-10 text-sm font-black uppercase tracking-widest">
+          <div className="hidden md:flex items-center gap-8 text-sm font-black uppercase tracking-widest">
             {user?.role !== 'ngo' && (
               <>
                 <Link to="/" className="text-zinc-400  hover:text-lime-400 transition-all hover:scale-105">Home</Link>
@@ -51,6 +54,47 @@ const Navbar = () => {
               </>
             )}
             
+            {/* Wallet Connect Button - visible to all users */}
+            <div className="flex items-center gap-3 pl-4 border-l border-white/10">
+              {isDevWallet ? (
+                <div className="flex items-center gap-2 bg-white/5 backdrop-blur-sm border border-white/10 px-3 py-1.5 rounded-full">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] bg-lime-400 text-black px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider">Dev</span>
+                    <span className="text-xs font-mono text-zinc-300">
+                      {address?.slice(0, 6)}...{address?.slice(-4)}
+                    </span>
+                  </div>
+                  <button 
+                    onClick={disconnect}
+                    className="text-[10px] text-red-400 hover:text-red-300 font-bold bg-transparent border-0 cursor-pointer pl-2 border-l border-white/10"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : isConnected && address ? (
+                <div className="flex items-center gap-2 bg-white/5 backdrop-blur-sm border border-lime-400/30 px-3 py-1.5 rounded-full">
+                  <div className="w-2 h-2 bg-lime-400 rounded-full animate-pulse"></div>
+                  <span className="text-xs font-mono text-lime-300">
+                    {address.slice(0, 6)}...{address.slice(-4)}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <div className="scale-[0.82] origin-right">
+                    <ConnectButton label="Connect Wallet" accountStatus="avatar" chainStatus="icon" showBalance={false} />
+                  </div>
+                  {isDevWalletEnabled && (
+                    <button
+                      onClick={connectDevWallet}
+                      className="py-1.5 px-2.5 text-[10px] bg-white/5 hover:bg-lime-400 hover:text-black text-zinc-400 font-bold rounded-lg transition-all flex items-center gap-1 border border-white/10 hover:border-lime-400 whitespace-nowrap"
+                    >
+                      ⚡ Dev
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
             {user ? (
               <div className="flex items-center gap-6 pl-4 border-l border-white/10">
                 <Link 
@@ -111,7 +155,44 @@ const Navbar = () => {
               </Link>
             </>
           )}
-          <div className="pt-6 border-t border-white/10 space-y-4">
+
+          {/* Mobile Wallet Section */}
+          <div className="py-4 border-t border-b border-white/10 space-y-3">
+            <div className="text-xs text-zinc-500 font-bold uppercase tracking-widest flex items-center gap-2">
+              <Wallet size={14} />
+              Wallet
+            </div>
+            {isDevWallet ? (
+              <div className="flex items-center justify-between bg-white/5 border border-white/10 px-4 py-3 rounded-2xl">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] bg-lime-400 text-black px-2 py-0.5 rounded-full font-bold uppercase">Dev Wallet</span>
+                  <span className="text-sm font-mono text-zinc-300">{address?.slice(0, 8)}...{address?.slice(-4)}</span>
+                </div>
+                <button onClick={disconnect} className="text-xs text-red-400 font-bold">Disconnect</button>
+              </div>
+            ) : isConnected && address ? (
+              <div className="flex items-center gap-2 bg-white/5 border border-lime-400/30 px-4 py-3 rounded-2xl">
+                <div className="w-2 h-2 bg-lime-400 rounded-full animate-pulse"></div>
+                <span className="text-sm font-mono text-lime-300">{address.slice(0, 8)}...{address.slice(-4)}</span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex justify-center">
+                  <ConnectButton label="Connect Wallet" accountStatus="avatar" chainStatus="icon" showBalance={false} />
+                </div>
+                {isDevWalletEnabled && (
+                  <button
+                    onClick={connectDevWallet}
+                    className="w-full py-2.5 px-3 text-xs bg-zinc-800 hover:bg-lime-400 hover:text-black text-white font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 border border-zinc-700/50 hover:border-lime-400"
+                  >
+                    ⚡ Use Shared Test Wallet
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4">
             {user ? (
               <>
                 <Link to={`/${user.role}-dashboard`} className="block text-2xl text-lime-400 font-black tracking-tight" onClick={() => setIsMenuOpen(false)}>Dashboard</Link>

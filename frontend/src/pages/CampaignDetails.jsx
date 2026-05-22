@@ -222,6 +222,37 @@ const CampaignDetails = () => {
         </div>
 
         <div className="max-w-md mx-auto space-y-4">
+           {/* Wallet Connection Status Banner */}
+           {!isConnected && (
+             <div className="flex flex-col items-center gap-3 p-5 bg-amber-50 border-2 border-amber-200 rounded-2xl">
+               <div className="flex items-center gap-2 text-amber-700 font-bold text-sm">
+                 <Wallet size={18} />
+                 Connect your wallet to donate on-chain
+               </div>
+               <div className="flex flex-col items-center gap-2 w-full">
+                 <ConnectButton label="Connect Wallet" accountStatus="avatar" chainStatus="icon" showBalance={false} />
+                 {isDevWalletEnabled && (
+                   <button
+                     type="button"
+                     onClick={connectDevWallet}
+                     className="py-2 px-4 text-xs bg-zinc-800 hover:bg-lime-400 hover:text-black text-white font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 border border-zinc-700/50 hover:border-lime-400 w-full max-w-[220px]"
+                   >
+                     ⚡ Use Shared Test Wallet
+                   </button>
+                 )}
+               </div>
+             </div>
+           )}
+
+           {/* Connected wallet indicator */}
+           {isConnected && address && (
+             <div className="flex items-center justify-center gap-2 p-3 bg-lime-50 border border-lime-200 rounded-2xl">
+               <div className="w-2 h-2 bg-lime-500 rounded-full animate-pulse"></div>
+               <span className="text-sm font-bold text-lime-700">Wallet Connected</span>
+               <span className="text-xs font-mono text-zinc-500">{address.slice(0, 6)}...{address.slice(-4)}</span>
+             </div>
+           )}
+
            <form onSubmit={handleDonate} className="space-y-4">
              <div className="relative">
                <span className="absolute left-6 top-1/2 -translate-y-1/2 text-2xl font-black text-zinc-400">$</span>
@@ -231,37 +262,23 @@ const CampaignDetails = () => {
                  value={donationAmount}
                  onChange={(e) => setDonationAmount(e.target.value)}
                  className="w-full pl-12 pr-6 py-5 bg-white border-2 border-transparent focus:border-black rounded-[2rem] text-2xl font-black focus:outline-none transition-all text-center shadow-sm"
+                 disabled={!isConnected}
                />
              </div>
              
              <Button 
                type="submit" 
-               className="w-full h-16 text-lg rounded-full" 
+               className={`w-full h-16 text-lg rounded-full ${!isConnected ? 'opacity-50 cursor-not-allowed' : ''}`} 
                loading={isDonating}
+               disabled={!isConnected}
              >
-               Donate Now
+               {isConnected ? 'Donate Now' : 'Connect Wallet to Donate'}
              </Button>
            </form>
 
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4">
-              <div className="flex flex-col gap-2">
-                <div className="scale-90 origin-left">
-                  <ConnectButton label="Connect Wallet" accountStatus="avatar" chainStatus="icon" showBalance={false} />
-                </div>
-                {!isConnected && isDevWalletEnabled && (
-                  <button
-                    type="button"
-                    onClick={connectDevWallet}
-                    className="py-2 px-3 text-xs bg-zinc-800 hover:bg-lime-400 hover:text-black text-white font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 border border-zinc-700/50 hover:border-lime-400"
-                  >
-                    ⚡ Use Shared Test Wallet
-                  </button>
-                )}
-              </div>
-              <div className="flex items-center gap-1 text-xs text-zinc-500 font-bold uppercase tracking-widest">
-                <ShieldCheck size={14} className="text-black" />
-                Secure Tx
-              </div>
+            <div className="flex items-center justify-center gap-1 text-xs text-zinc-500 font-bold uppercase tracking-widest pt-2">
+              <ShieldCheck size={14} className="text-black" />
+              Secure On-Chain Transaction
             </div>
         </div>
       </div>
