@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useAccount, useWalletClient } from 'wagmi';
 import { useUGFModal } from '@tychilabs/react-ugf';
-import { BrowserProvider } from 'ethers';
+import { BrowserProvider, ethers } from 'ethers';
 import Button from './Button';
 import { CONTRACT_ADDRESSES } from '../lib/contracts';
 import {
@@ -55,7 +55,7 @@ export function UGFDonationTest() {
 
     try {
       const signer = await getEthersSigner();
-      const amountWei = BigInt(amount) * BigInt(10 ** 18);
+      const amountWei = ethers.parseEther(amount);
       const encodedData = encodeDonationTransaction(campaignId, amountWei, message);
 
       // Open the UGF modal — it handles quote, payment, and execution
