@@ -30,7 +30,11 @@ import { CONTRACT_ADDRESSES } from './contracts';
 import DonationABI from './abi/Donation.json';
 import MockUSDABI from './abi/MockUSD.json';
 import { encodeFunctionData } from 'viem';
+<<<<<<< HEAD
 import { Contract, Signature } from 'ethers';
+=======
+import { ethers } from 'ethers';
+>>>>>>> fb3fe4fabc494d9eb3399cd43f64cd5af5c22b89
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -283,6 +287,7 @@ export async function getChainEntry() {
 export async function donateWithUGF({ signer, provider, campaignId, amount, message, onProgress }) {
   const progress = onProgress || (() => {});
   const donationContractAddress = CONTRACT_ADDRESSES.baseSepolia.donation;
+  const tokenAddress = CONTRACT_ADDRESSES.baseSepolia.tyiMockUSD;
   const payerAddress = await signer.getAddress();
 
   // 1. Authenticate
@@ -292,6 +297,7 @@ export async function donateWithUGF({ signer, provider, campaignId, amount, mess
   }
   progress('auth', { status: 'Authenticated' });
 
+<<<<<<< HEAD
   // 2. Sign Permit (Gasless Approval)
   progress('permit', { status: 'Signing token permit (gasless)...' });
   const tokenAddress = CONTRACT_ADDRESSES.baseSepolia.tyiMockUSD;
@@ -307,6 +313,44 @@ export async function donateWithUGF({ signer, provider, campaignId, amount, mess
     name: tokenName,
     version: '1',
     chainId: Number(chainId),
+=======
+  // 2. Obtain EIP-2612 Permit Signature (Gasless Approval)
+  progress('permit_signing', { status: 'Please sign the gasless MockUSD approval in your wallet...' });
+  
+  const amountWei = ethers.parseEther(amount);
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600); // 1-hour expiration
+  
+  // Connect to the token contract to fetch the current nonce of the payer
+  const tokenContract = new ethers.Contract(
+    tokenAddress,
+    [
+      'function nonces(address owner) view returns (uint256)',
+      'function name() view returns (string)'
+    ],
+    provider
+  );
+  
+  let nonce;
+  let tokenName = 'TYI_MOCK_USD';
+  try {
+    nonce = await tokenContract.nonces(payerAddress);
+  } catch (nonceErr) {
+    console.warn('Could not fetch token nonce directly, defaulting to 0:', nonceErr);
+    nonce = 0n;
+  }
+  
+  try {
+    tokenName = await tokenContract.name();
+  } catch (nameErr) {
+    console.warn('Could not fetch token name, defaulting to TYI_MOCK_USD:', nameErr);
+  }
+
+  // Define Domain and Types for the EIP-712 Signature
+  const domain = {
+    name: tokenName,
+    version: '1',
+    chainId: Number(BASE_SEPOLIA_CHAIN_ID),
+>>>>>>> fb3fe4fabc494d9eb3399cd43f64cd5af5c22b89
     verifyingContract: tokenAddress,
   };
 
@@ -328,6 +372,7 @@ export async function donateWithUGF({ signer, provider, campaignId, amount, mess
     deadline: deadline,
   };
 
+<<<<<<< HEAD
   // Sign typed data using the ethers signer
   const signature = await signer.signTypedData(domain, types, value);
   const sig = Signature.from(signature);
@@ -335,6 +380,15 @@ export async function donateWithUGF({ signer, provider, campaignId, amount, mess
 
   // 3. Encode transaction with permit
   progress('encode', { status: 'Preparing sponsored transaction...' });
+=======
+  // Sign the typed permit data
+  const signature = await signer.signTypedData(domain, types, value);
+  const sig = ethers.Signature.from(signature);
+  progress('permit_signing', { status: 'MockUSD Permit approved!' });
+
+  // 3. Encode the Permit-based Transaction
+  progress('encode', { status: 'Preparing transaction...' });
+>>>>>>> fb3fe4fabc494d9eb3399cd43f64cd5af5c22b89
   const encodedData = encodeDonationWithPermitTransaction(
     campaignId,
     amountWei,
@@ -367,7 +421,11 @@ export async function donateWithUGF({ signer, provider, campaignId, amount, mess
   progress('payment', { status: 'Gas fee paid' });
 
   // 6. Execute sponsored transaction
+<<<<<<< HEAD
   progress('execute', { status: 'Executing donation on Base Sepolia...' });
+=======
+  progress('execute', { status: 'Executing donation on-chain...' });
+>>>>>>> fb3fe4fabc494d9eb3399cd43f64cd5af5c22b89
   const result = await executeSponsoredTransaction(
     quote.digest,
     signer,
