@@ -295,8 +295,14 @@ export async function donateWithUGF({ signer, provider, campaignId, amount, mess
 
   // 2. Obtain EIP-2612 Permit Signature (Gasless Approval)
   progress('permit_signing', { status: 'Please sign the gasless MockUSD approval in your wallet...' });
+
+  let amountWei;
+  try {
+    amountWei = ethers.parseEther(amount);
+  } catch {
+    amountWei = BigInt(amount) * BigInt(10 ** 18);
+  }
   
-  const amountWei = ethers.parseEther(amount);
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600); // 1-hour expiration
   
   // Connect to the token contract to fetch the current nonce of the payer
@@ -355,7 +361,7 @@ export async function donateWithUGF({ signer, provider, campaignId, amount, mess
   const sig = ethers.Signature.from(signature);
   progress('permit_signing', { status: 'MockUSD Permit approved!' });
 
-  // 3. Encode the Permit-based Transaction
+  // 3. Encode transaction with permit
   progress('encode', { status: 'Preparing transaction...' });
   const encodedData = encodeDonationWithPermitTransaction(
     campaignId,

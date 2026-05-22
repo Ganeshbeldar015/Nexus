@@ -11,7 +11,6 @@ const Landing = () => {
   const { user } = useAuth();
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
-
   useEffect(() => {
     const fetchCampaigns = async () => {
       try {
