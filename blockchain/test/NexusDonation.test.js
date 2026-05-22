@@ -32,21 +32,21 @@ describe("Nexus Donation System", function () {
 
   it("Should only allow verified NGOs to create a campaign", async function () {
     await expect(
-      donation.connect(owner).createCampaign("Unauthorized", "Testing access", ethers.parseEther("500"))
+      donation.connect(owner).createCampaign(1, "Unauthorized", "Testing access", ethers.parseEther("500"))
     ).to.be.revertedWith("Only verified NGOs can create campaigns");
 
-    await donation.connect(ngo).createCampaign("Authorized", "Testing access", ethers.parseEther("500"));
+    await donation.connect(ngo).createCampaign(1, "Authorized", "Testing access", ethers.parseEther("500"));
   });
 
   it("Should allow verified NGO to create a campaign", async function () {
-    await donation.connect(ngo).createCampaign("Flood Relief", "Helping victims", ethers.parseEther("500"));
+    await donation.connect(ngo).createCampaign(1, "Flood Relief", "Helping victims", ethers.parseEther("500"));
     const campaign = await donation.getCampaign(1);
     expect(campaign.title).to.equal("Flood Relief");
     expect(campaign.ngo).to.equal(ngo.address);
   });
 
   it("Should allow donors to donate to a campaign", async function () {
-    await donation.connect(ngo).createCampaign("Flood Relief", "Helping victims", ethers.parseEther("500"));
+    await donation.connect(ngo).createCampaign(1, "Flood Relief", "Helping victims", ethers.parseEther("500"));
 
     await donation.connect(donor).donateToCampaign(1, ethers.parseEther("100"), "Stay strong!");
     const campaign = await donation.getCampaign(1);
@@ -58,7 +58,7 @@ describe("Nexus Donation System", function () {
   });
 
   it("Should allow NGO to withdraw funds", async function () {
-    await donation.connect(ngo).createCampaign("Flood Relief", "Helping victims", ethers.parseEther("500"));
+    await donation.connect(ngo).createCampaign(1, "Flood Relief", "Helping victims", ethers.parseEther("500"));
     await donation.connect(donor).donateToCampaign(1, ethers.parseEther("100"), "Stay strong!");
 
     const initialNgoBalance = await testToken.balanceOf(ngo.address);
@@ -70,7 +70,7 @@ describe("Nexus Donation System", function () {
   });
 
   it("Should allow NGO to add usage records", async function () {
-    await donation.connect(ngo).createCampaign("Flood Relief", "Helping victims", ethers.parseEther("500"));
+    await donation.connect(ngo).createCampaign(1, "Flood Relief", "Helping victims", ethers.parseEther("500"));
 
     await donation.connect(ngo).addUsageRecord(1, ethers.parseEther("50"), "Bought food", "http://receipt.url");
     const records = await donation.getUsageRecords(1);
@@ -79,7 +79,7 @@ describe("Nexus Donation System", function () {
   });
 
   it("Should allow donors to donate with Permit", async function () {
-    await donation.connect(ngo).createCampaign("Permit Test", "Testing permit", ethers.parseEther("500"));
+    await donation.connect(ngo).createCampaign(1, "Permit Test", "Testing permit", ethers.parseEther("500"));
 
     const amount = ethers.parseEther("50");
     const deadline = Math.floor(Date.now() / 1000) + 3600;

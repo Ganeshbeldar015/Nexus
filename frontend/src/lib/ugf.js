@@ -28,8 +28,13 @@ import {
 } from '@tychilabs/ugf-testnet-js';
 import { CONTRACT_ADDRESSES } from './contracts';
 import DonationABI from './abi/Donation.json';
+import MockUSDABI from './abi/MockUSD.json';
 import { encodeFunctionData } from 'viem';
+<<<<<<< HEAD
+import { Contract, Signature, ethers } from 'ethers';
+=======
 import { ethers } from 'ethers';
+>>>>>>> 83043256144952cb3c70cce543ec1b7f69edf6d6
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -83,9 +88,40 @@ export function isUGFAuthenticated() {
 // ─── Transaction Encoding ────────────────────────────────────────────────────
 
 /**
+ * Safely parse a campaign ID (which could be a number, a numeric string, or a UUID string) to a BigInt.
+ * If it is a UUID string, it removes the hyphens and parses it as a hexadecimal number.
+ * 
+ * @param {string|number|bigint} id 
+ * @returns {bigint}
+ */
+export function safeParseCampaignId(id) {
+  if (id === null || id === undefined) return 1n;
+  if (typeof id === 'bigint') return id;
+  if (typeof id === 'number') return BigInt(id);
+  
+  const idStr = String(id).trim();
+  if (idStr.includes('-')) {
+    try {
+      const cleanHex = idStr.replace(/-/g, '');
+      return BigInt('0x' + cleanHex);
+    } catch (e) {
+      console.warn("Failed to parse UUID campaignId to BigInt, falling back to 1", e);
+      return 1n;
+    }
+  }
+  
+  try {
+    return BigInt(idStr);
+  } catch (e) {
+    console.warn("Failed to parse campaignId to BigInt, falling back to 1", e);
+    return 1n;
+  }
+}
+
+/**
  * Encode a donateToCampaign call for the Donation contract.
  * 
- * @param {bigint|number} campaignId 
+ * @param {bigint|number|string} campaignId 
  * @param {bigint} amount - Amount in token base units (wei)
  * @param {string} message - Donation message
  * @returns {string} Encoded calldata (hex)
@@ -94,14 +130,14 @@ export function encodeDonationTransaction(campaignId, amount, message) {
   return encodeFunctionData({
     abi: DonationABI,
     functionName: 'donateToCampaign',
-    args: [BigInt(campaignId), BigInt(amount), message],
+    args: [safeParseCampaignId(campaignId), BigInt(amount), message],
   });
 }
 
 /**
  * Encode a donateToCampaignWithPermit call (when permit support is added to contract).
  * 
- * @param {bigint|number} campaignId
+ * @param {bigint|number|string} campaignId
  * @param {bigint} amount
  * @param {string} message
  * @param {bigint} deadline
@@ -114,7 +150,7 @@ export function encodeDonationWithPermitTransaction(campaignId, amount, message,
   return encodeFunctionData({
     abi: DonationABI,
     functionName: 'donateToCampaignWithPermit',
-    args: [BigInt(campaignId), BigInt(amount), message, BigInt(deadline), v, r, s],
+    args: [safeParseCampaignId(campaignId), BigInt(amount), message, BigInt(deadline), v, r, s],
   });
 }
 
@@ -261,10 +297,20 @@ export async function donateWithUGF({ signer, provider, campaignId, amount, mess
   }
   progress('auth', { status: 'Authenticated' });
 
+<<<<<<< HEAD
+  // 2. Sign Permit (Gasless Approval)
+=======
   // 2. Obtain EIP-2612 Permit Signature (Gasless Approval)
+>>>>>>> 83043256144952cb3c70cce543ec1b7f69edf6d6
   progress('permit_signing', { status: 'Please sign the gasless MockUSD approval in your wallet...' });
+
+  let amountWei;
+  try {
+    amountWei = ethers.parseEther(amount);
+  } catch {
+    amountWei = BigInt(amount) * BigInt(10 ** 18);
+  }
   
-  const amountWei = ethers.parseEther(amount);
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600); // 1-hour expiration
   
   // Connect to the token contract to fetch the current nonce of the payer
@@ -318,12 +364,16 @@ export async function donateWithUGF({ signer, provider, campaignId, amount, mess
     deadline: deadline,
   };
 
+<<<<<<< HEAD
+  // Sign typed data using the ethers signer
+=======
   // Sign the typed permit data
+>>>>>>> 83043256144952cb3c70cce543ec1b7f69edf6d6
   const signature = await signer.signTypedData(domain, types, value);
   const sig = ethers.Signature.from(signature);
   progress('permit_signing', { status: 'MockUSD Permit approved!' });
 
-  // 3. Encode the Permit-based Transaction
+  // 3. Encode transaction with permit
   progress('encode', { status: 'Preparing transaction...' });
   const encodedData = encodeDonationWithPermitTransaction(
     campaignId,

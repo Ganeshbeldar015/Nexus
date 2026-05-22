@@ -1,7 +1,7 @@
 # Nexus Project Status
 
 ## Overview
-This document describes the current state of the Nexus blockchain donation platform project, fully refactored for UGF-native architecture.
+This document describes the current state of the Nexus blockchain donation platform project, fully refactored for UGF-native architecture with verified NGOs feature.
 
 ## Project Structure
 ```
@@ -9,7 +9,7 @@ Nexus/
 ├── blockchain/          # Smart contracts & Hardhat setup
 │   ├── contracts/       # Solidity contracts
 │   │   ├── Donation.sol
-│   │   └── TestToken.sol (for local testing only)
+│   │   └── MockUSD.sol
 │   ├── ignition/        # Deployment modules
 │   ├── scripts/         # Helper scripts (deploy, export-abi, send-op-tx)
 │   ├── test/            # Test files
@@ -43,24 +43,26 @@ Nexus/
 ### Contracts (blockchain/contracts/)
 - **Donation.sol**: Main donation platform contract
   - Features: Campaign creation, donations, fund withdrawal, usage records
-  - Uses OpenZeppelin contracts
+  - Uses OpenZeppelin contracts (IERC20, IERC20Permit, Ownable)
   - ERC20 token donation (transferFrom) - NO ETH payable functions
   - **EIP-2612 Permit support** for single-transaction donations
+  - **Ownable access control** (owner can verify NGOs)
+  - **Verified NGOs feature** (only verified NGOs can create campaigns)
   - Accepts official TYI_MOCK_USD token address in constructor
   - Fully UGF-compatible!
-- **TestToken.sol**: ERC20 token for LOCAL TESTING ONLY
-  - **EIP-2612 Permit support** for testing permit flows locally
-  - Not for production/hackathon use
-  - For local development and testing only
+- **MockUSD.sol**: Mock ERC20 token
+  - Implements mint(), approve(), transferFrom()
+  - Inherits ERC20Permit (supports off-chain signed approvals)
+  - For local testing only - **Recommended: Use TYI_MOCK_USD for hackathon/UGF**
 
 ### Key Files
 - `hardhat.config.ts`: Hardhat configuration
   - Solidity 0.8.28
   - Networks: hardhatMainnet, hardhatOp (Optimism), Sepolia, baseSepolia
 - `tsconfig.json`: TypeScript config (Node 22)
-- `ignition/modules/Nexus.ts`: Deployment module (deploys Donation only with TYI_MOCK_USD
-- `scripts/deploy.ts`: Custom deployment script (uses TYI_MOCK_USD if set, falls back to TestToken)
-- `scripts/export-abi.js`: Exports Donation ABI only to frontend
+- `ignition/modules/Nexus.ts`: Deployment module
+- `scripts/deploy.ts`: Custom deployment script
+- `scripts/export-abi.js`: Exports Donation and MockUSD ABIs to frontend
 - `.env.example`: Environment variables example
 
 ### Dependencies
@@ -75,7 +77,12 @@ Nexus/
 - mocha, chai for testing
 
 ### Scripts
-- `npm run export-abi`: Exports Donation ABI to frontend
+- `npm run export-abi`: Exports contract ABIs to frontend
+
+### Tests
+- All 6 tests passing! ✅
+- Includes test for permit-based donations
+- Includes test for verified NGOs feature
 
 ---
 
@@ -91,18 +98,19 @@ Nexus/
 - **components/**: Button, CampaignCard, Footer, Input, Navbar, Sidebar, UGFDonationTest
 - **pages/**: Landing, Login, Signup, DonorDashboard, NgoDashboard, AdminDashboard, etc.
 - **context/**: AuthContext.jsx
-- **lib/**: supabase.js, web3.jsx, abi/ (Donation ABI only), contracts.js, ugf.js
+- **lib/**: supabase.js, web3.jsx, abi/ (Donation + MockUSD ABIs), contracts.js, ugf.js
 - **layouts/**: DashboardLayout, MainLayout
 - **routes/**: ProtectedRoute, RoleBasedRoute
 
 ### New Files Added
-- `frontend/src/lib/contracts.js`: Contract address configuration (TYI_MOCK_USD and Donation)
+- `frontend/src/lib/contracts.js`: Contract address configuration
 - `frontend/src/lib/ugf.js`: UGF service layer
 - `frontend/src/components/UGFDonationTest.jsx`: Test component for UGF donations
 
 ### UGF Service Layer (ugf.js)
 Functions included:
 - `encodeDonationTransaction()` - Encode donation transaction
+- `encodeDonationWithPermitTransaction()` - Encode permit-based donation
 - `getContractAddresses()` - Get addresses by chain
 - `getDonationQuote()` - Placeholder for UGF quote
 - `executeDonationWithUGF()` - Placeholder for UGF execution
@@ -138,6 +146,7 @@ Functions included:
 - Single-token architecture: User Wallet → TYI_MOCK_USD → UGF settlement (gas) → Donation contract
 - No custom token dependency
 - Donors **don't need ETH** - UGF handles everything!
+- Verified NGOs feature with Ownable access control
 - Test component: `UGFDonationTest.jsx` for testing UGF flow
 - See UGF_INTEGRATION.md for complete guide
 - See flow.md for detailed system flow
@@ -155,6 +164,6 @@ Functions included:
 1. Set environment variables in blockchain/.env:
    - BASE_SEPOLIA_RPC_URL
    - BASE_SEPOLIA_PRIVATE_KEY
-   - TYI_MOCK_USD_ADDRESS (official TYI token address)
-2. Deploy using Ignition: `npx hardhat ignition deploy --network baseSepolia ignition/modules/Nexus.ts
+   - TYI_MOCK_USD_ADDRESS (official TYI token address, optional)
+2. Deploy using Ignition or custom script
 3. Update frontend/src/lib/contracts.js with deployed addresses

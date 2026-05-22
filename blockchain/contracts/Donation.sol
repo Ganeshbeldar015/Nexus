@@ -55,14 +55,16 @@ contract Donation is Ownable {
     }
 
     function createCampaign(
+        uint256 _campaignId,
         string memory _title,
         string memory _description,
         uint256 _targetAmount
     ) public {
         require(verifiedNgos[msg.sender], "Only verified NGOs can create campaigns");
+        require(campaigns[_campaignId].id == 0, "Campaign already exists");
         campaignCount++;
-        campaigns[campaignCount] = Campaign(
-            campaignCount,
+        campaigns[_campaignId] = Campaign(
+            _campaignId,
             msg.sender,
             _title,
             _description,
@@ -72,7 +74,7 @@ contract Donation is Ownable {
             true
         );
 
-        emit CampaignCreated(campaignCount, msg.sender, _title);
+        emit CampaignCreated(_campaignId, msg.sender, _title);
     }
 
     function donateToCampaign(uint256 _campaignId, uint256 _amount, string memory _message) public {

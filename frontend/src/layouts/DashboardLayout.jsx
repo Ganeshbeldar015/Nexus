@@ -3,11 +3,13 @@ import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Heart, LogOut } from 'lucide-react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { useNexusWallet } from '../lib/useNexusWallet';
 
 const DashboardLayout = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { isConnected, address, isDevWallet, isDevWalletEnabled, connectDevWallet, disconnect } = useNexusWallet();
 
   const handleLogout = () => {
     logout();
@@ -59,7 +61,34 @@ const DashboardLayout = () => {
 
           <div className="flex items-center gap-6">
             <div className="hidden sm:block scale-90 origin-right">
-              <ConnectButton label="Connect" accountStatus="avatar" chainStatus="icon" showBalance={false} />
+              {isDevWallet ? (
+                <div className="flex items-center gap-3 bg-zinc-50 border border-zinc-200 px-4 py-2 rounded-2xl">
+                  <div className="flex flex-col text-left">
+                    <span className="text-[9px] bg-lime-400 text-black px-1.5 py-0.5 rounded font-bold uppercase tracking-wider self-start">Shared Dev</span>
+                    <span className="text-xs font-mono text-zinc-600 mt-1">
+                      {address.slice(0, 6)}...{address.slice(-4)}
+                    </span>
+                  </div>
+                  <button 
+                    onClick={disconnect}
+                    className="text-xs text-red-500 hover:text-red-600 font-bold bg-transparent border-0 cursor-pointer pl-2 border-l border-zinc-200"
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <ConnectButton label="Connect" accountStatus="avatar" chainStatus="icon" showBalance={false} />
+                  {!isConnected && isDevWalletEnabled && (
+                    <button
+                      onClick={connectDevWallet}
+                      className="px-4 py-2 text-xs bg-black hover:bg-lime-400 hover:text-black text-white font-bold rounded-2xl transition-all border border-zinc-800 hover:border-lime-400 shadow-sm"
+                    >
+                      ⚡ Use Shared Test Wallet
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-3 pl-6 border-l border-zinc-200">
               <div className="text-right hidden sm:block">

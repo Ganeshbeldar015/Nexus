@@ -1,7 +1,7 @@
 export const CONTRACT_ADDRESSES = {
   baseSepolia: {
-    donation: import.meta.env.VITE_DONATION_CONTRACT_ADDRESS || '0x71C7656EC7ab88b098defB751B7401B5f6d8976F',
-    tyiMockUSD: import.meta.env.VITE_TYI_MOCK_USD_ADDRESS || '0x2198301820A38102A88aA8bcF988F781a9862cd5',
+    donation: import.meta.env.VITE_DONATION_CONTRACT_ADDRESS || 'YOUR_DONATION_CONTRACT_ADDRESS',
+    tyiMockUSD: import.meta.env.VITE_TYI_MOCK_USD_ADDRESS || '0x27DC...727e',
   },
 };
 

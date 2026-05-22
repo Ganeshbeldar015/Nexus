@@ -16,12 +16,19 @@ import { Link } from 'react-router-dom';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import { toast } from 'sonner';
+import { useNexusWallet } from '../lib/useNexusWallet';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { CONTRACT_ADDRESSES } from '../lib/contracts';
+import DonationABI from '../lib/abi/Donation.json';
+import { ethers } from 'ethers';
 
 const AdminNgoManagement = () => {
   const [ngos, setNgos] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all'); // all, verified, pending, rejected
   const [showAddModal, setShowAddModal] = useState(false);
+
+  const { isConnected, getSigner, isDevWalletEnabled, connectDevWallet } = useNexusWallet();
 
   // New NGO Form State
   const [newName, setNewName] = useState('');
@@ -78,7 +85,37 @@ const AdminNgoManagement = () => {
   }, []);
 
   const handleApprove = async (id, name) => {
+    const ngo = ngos.find(n => n.id === id);
+    if (!ngo) {
+      toast.error('NGO not found in directory.');
+      return;
+    }
+
+    if (!ngo.wallet_address) {
+      toast.error('NGO has not provided a wallet address yet. They must provide a wallet address before they can be verified on-chain.');
+      return;
+    }
+
+    if (!isConnected) {
+      toast.error('Please connect your admin wallet to approve this NGO on-chain.');
+      return;
+    }
+
+    const toastId = toast.loading(`Approving NGO ${name} on-chain...`);
+
     try {
+      // 1. On-chain transaction
+      const signer = await getSigner();
+      const donationContract = new ethers.Contract(
+        CONTRACT_ADDRESSES.baseSepolia.donation,
+        DonationABI,
+        signer
+      );
+      const tx = await donationContract.verifyNgo(ngo.wallet_address, true);
+      await tx.wait();
+
+      // 2. Database update
+      toast.loading('On-chain approval successful! Updating database...', { id: toastId });
       const { data: existingNgo } = await supabase.from('ngos').select('id').eq('user_id', id).maybeSingle();
       if (existingNgo) {
         const { error } = await supabase.from('ngos').update({ verification_status: 'verified' }).eq('user_id', id);
@@ -91,16 +128,66 @@ const AdminNgoManagement = () => {
         });
         if (error) throw error;
       }
-      toast.success('NGO verification approved.');
+      toast.success('NGO verification approved successfully!', { id: toastId });
       fetchNgos();
     } catch (error) {
-      toast.error('Failed to approve NGO');
       console.error(error);
+      const errorMsg = error.shortMessage || error.message || String(error);
+      toast.error(`Failed to approve NGO: ${errorMsg}`, { id: toastId });
     }
   };
 
   const handleReject = async (id, name) => {
+    const ngo = ngos.find(n => n.id === id);
+    if (!ngo) {
+      toast.error('NGO not found in directory.');
+      return;
+    }
+
+    if (!ngo.wallet_address) {
+      // If no wallet address, we can just do off-chain rejection
+      try {
+        const { data: existingNgo } = await supabase.from('ngos').select('id').eq('user_id', id).maybeSingle();
+        if (existingNgo) {
+          const { error } = await supabase.from('ngos').update({ verification_status: 'rejected' }).eq('user_id', id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.from('ngos').insert({
+            user_id: id,
+            organization_name: name,
+            verification_status: 'rejected'
+          });
+          if (error) throw error;
+        }
+        toast.error('NGO status set to Rejected.');
+        fetchNgos();
+      } catch (error) {
+        toast.error('Failed to reject NGO');
+        console.error(error);
+      }
+      return;
+    }
+
+    if (!isConnected) {
+      toast.error('Please connect your admin wallet to reject/suspend this NGO on-chain.');
+      return;
+    }
+
+    const toastId = toast.loading(`Suspending NGO ${name} on-chain...`);
+
     try {
+      // 1. On-chain transaction
+      const signer = await getSigner();
+      const donationContract = new ethers.Contract(
+        CONTRACT_ADDRESSES.baseSepolia.donation,
+        DonationABI,
+        signer
+      );
+      const tx = await donationContract.verifyNgo(ngo.wallet_address, false);
+      await tx.wait();
+
+      // 2. Database update
+      toast.loading('On-chain suspension successful! Updating database...', { id: toastId });
       const { data: existingNgo } = await supabase.from('ngos').select('id').eq('user_id', id).maybeSingle();
       if (existingNgo) {
         const { error } = await supabase.from('ngos').update({ verification_status: 'rejected' }).eq('user_id', id);
@@ -113,11 +200,12 @@ const AdminNgoManagement = () => {
         });
         if (error) throw error;
       }
-      toast.error('NGO status set to Rejected.');
+      toast.error('NGO status set to Rejected.', { id: toastId });
       fetchNgos();
     } catch (error) {
-      toast.error('Failed to reject NGO');
       console.error(error);
+      const errorMsg = error.shortMessage || error.message || String(error);
+      toast.error(`Failed to reject NGO: ${errorMsg}`, { id: toastId });
     }
   };
 
@@ -156,10 +244,23 @@ const AdminNgoManagement = () => {
             Manage partner organizations, verify credentials, and onboard new NGOs to the decentralized disaster relief network.
           </p>
         </div>
-        <Button onClick={() => setShowAddModal(true)} className="rounded-full px-6 shrink-0 shadow-md hover:shadow-lg">
-          <Plus size={18} />
-          Manual Registration
-        </Button>
+        <div className="flex flex-wrap items-center gap-4 shrink-0">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <ConnectButton />
+            {!isConnected && isDevWalletEnabled && (
+              <button
+                onClick={connectDevWallet}
+                className="px-4 py-2 text-xs bg-black hover:bg-lime-400 hover:text-black text-white font-bold rounded-2xl transition-all border border-zinc-800 hover:border-lime-400 shadow-sm"
+              >
+                ⚡ Use Shared Test Wallet
+              </button>
+            )}
+          </div>
+          <Button onClick={() => setShowAddModal(true)} className="rounded-full px-6 shadow-md hover:shadow-lg">
+            <Plus size={18} />
+            Manual Registration
+          </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}

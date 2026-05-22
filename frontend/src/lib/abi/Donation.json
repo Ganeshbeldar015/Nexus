@@ -268,6 +268,11 @@
   {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "_campaignId",
+        "type": "uint256"
+      },
+      {
         "internalType": "string",
         "name": "_title",
         "type": "string"

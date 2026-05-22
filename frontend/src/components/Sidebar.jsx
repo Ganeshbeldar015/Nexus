@@ -15,10 +15,12 @@ import {
   Users
 } from 'lucide-react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { useNexusWallet } from '../lib/useNexusWallet';
 
 const Sidebar = ({ isOpen, toggle }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { isConnected, address, isDevWallet, isDevWalletEnabled, connectDevWallet, disconnect } = useNexusWallet();
 
   const handleLogout = () => {
     logout();
@@ -70,11 +72,38 @@ const Sidebar = ({ isOpen, toggle }) => {
         </nav>
 
         <div className="p-4 border-t border-zinc-900 space-y-4">
-          <div className="px-2 py-3 bg-zinc-900/50 rounded-xl">
+          <div className="px-2 py-3 bg-zinc-900/50 rounded-xl space-y-2">
              <div className="text-xs text-zinc-500 mb-2 px-2 uppercase font-bold tracking-wider">Wallet</div>
-             <div className="flex justify-center scale-90 origin-left">
-                <ConnectButton label="Connect" accountStatus="avatar" chainStatus="icon" showBalance={false} />
-             </div>
+             {isDevWallet ? (
+               <div className="px-2 py-1.5 space-y-2">
+                 <div className="flex items-center justify-between">
+                   <span className="text-[10px] bg-lime-400 text-black px-2 py-0.5 rounded-full font-bold uppercase">Shared Dev</span>
+                   <button 
+                     onClick={disconnect}
+                     className="text-xs text-red-400 hover:text-red-300 font-bold bg-transparent border-0 cursor-pointer"
+                   >
+                     Disconnect
+                   </button>
+                 </div>
+                 <div className="text-xs font-mono text-zinc-300 break-all bg-black/40 p-2 rounded border border-white/5">
+                   {address}
+                 </div>
+               </div>
+             ) : (
+               <div className="space-y-2">
+                 <div className="flex justify-center scale-90 origin-left">
+                   <ConnectButton label="Connect" accountStatus="avatar" chainStatus="icon" showBalance={false} />
+                 </div>
+                 {!isConnected && isDevWalletEnabled && (
+                   <button
+                     onClick={connectDevWallet}
+                     className="w-full py-2 px-3 text-xs bg-zinc-800 hover:bg-lime-400 hover:text-black text-white font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 border border-zinc-700/50 hover:border-lime-400"
+                   >
+                     ⚡ Use Shared Test Wallet
+                   </button>
+                 )}
+               </div>
+             )}
           </div>
 
           <button

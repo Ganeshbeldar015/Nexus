@@ -7,16 +7,14 @@ import { Heart, Share2, ShieldCheck, History, ArrowLeft, Wallet, Loader2 } from 
 import Button from '../components/Button';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { toast } from 'sonner';
-import { useAccount, useWalletClient } from 'wagmi';
-import { BrowserProvider } from 'ethers';
+import { useNexusWallet } from '../lib/useNexusWallet';
 import { donateWithUGF, handleUGFError } from '../lib/ugf';
 
 const CampaignDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { address, isConnected } = useAccount();
-  const { data: walletClient } = useWalletClient();
+  const { address, isConnected, getSigner, isDevWallet, isDevWalletEnabled, connectDevWallet, disconnect } = useNexusWallet();
   
   const [campaign, setCampaign] = useState(null);
   const [donations, setDonations] = useState([]);
@@ -56,15 +54,6 @@ const CampaignDetails = () => {
 
     fetchCampaignData();
   }, [id]);
-
-  /**
-   * Convert wagmi's walletClient to an ethers v6 Signer.
-   */
-  const getEthersSigner = useCallback(async () => {
-    if (!walletClient) throw new Error('Wallet not connected');
-    const provider = new BrowserProvider(walletClient.transport);
-    return provider.getSigner();
-  }, [walletClient]);
 
   if (loading) {
     return (
@@ -108,15 +97,15 @@ const CampaignDetails = () => {
     
     try {
       const amount = parseFloat(donationAmount);
-      let txHash = `0x${Math.random().toString(16).slice(2, 42)}`; // Fallback hash
+      let txHash;
 
       // ─── UGF BLOCKCHAIN FLOW ──────────────────────────────────────────────
+      const signer = await getSigner();
+      const provider = signer.provider;
+
+      const toastId = toast.loading('Initializing UGF donation...');
+
       try {
-        const signer = await getEthersSigner();
-        const provider = signer.provider;
-
-        const toastId = toast.loading('Initializing UGF donation...');
-
         const result = await donateWithUGF({
           signer,
           provider,
@@ -132,14 +121,10 @@ const CampaignDetails = () => {
         txHash = result.userTxHash;
         toast.success('Blockchain transaction successful!', { id: toastId });
       } catch (ugfErr) {
-        console.error("UGF Flow failed, falling back to simulation:", ugfErr);
-        // If UGF fails because it's not configured or rejected, we can either stop or simulate
-        // For a hackathon/demo, we might want to continue with simulation if UGF isn't ready
-        // But the requirement says "No ETH required", so we should try to make it work.
-        // For now, let's toast the error and continue with simulation if desired, 
-        // or just re-throw if we want strict on-chain.
-        // toast.error(handleUGFError(ugfErr).message);
-        // throw ugfErr; 
+        console.error("UGF Flow failed:", ugfErr);
+        const friendlyError = handleUGFError(ugfErr);
+        toast.error(friendlyError.message, { id: toastId });
+        throw ugfErr; // Re-throw to halt database update
       }
 
       // ─── DATABASE UPDATE FLOW ──────────────────────────────────────────────
@@ -172,7 +157,10 @@ const CampaignDetails = () => {
       setDonationAmount('');
     } catch (err) {
       console.error("Donation failed:", err);
-      toast.error('Donation failed. Please try again.');
+      // Only show generic error if UGF has already failed/shown its error
+      if (ugfStep === null || ugfStep === 'initializing') {
+        toast.error('Donation failed. Please check your wallet connection and try again.');
+      }
     } finally {
       setIsDonating(false);
       setUgfStep(null);
@@ -255,15 +243,26 @@ const CampaignDetails = () => {
              </Button>
            </form>
 
-           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4">
-             <div className="scale-90 origin-left">
-               <ConnectButton label="Connect Wallet" accountStatus="avatar" chainStatus="icon" showBalance={false} />
-             </div>
-             <div className="flex items-center gap-1 text-xs text-zinc-500 font-bold uppercase tracking-widest">
-               <ShieldCheck size={14} className="text-black" />
-               Secure Tx
-             </div>
-           </div>
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4">
+              <div className="flex flex-col gap-2">
+                <div className="scale-90 origin-left">
+                  <ConnectButton label="Connect Wallet" accountStatus="avatar" chainStatus="icon" showBalance={false} />
+                </div>
+                {!isConnected && isDevWalletEnabled && (
+                  <button
+                    type="button"
+                    onClick={connectDevWallet}
+                    className="py-2 px-3 text-xs bg-zinc-800 hover:bg-lime-400 hover:text-black text-white font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 border border-zinc-700/50 hover:border-lime-400"
+                  >
+                    ⚡ Use Shared Test Wallet
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-1 text-xs text-zinc-500 font-bold uppercase tracking-widest">
+                <ShieldCheck size={14} className="text-black" />
+                Secure Tx
+              </div>
+            </div>
         </div>
       </div>
 

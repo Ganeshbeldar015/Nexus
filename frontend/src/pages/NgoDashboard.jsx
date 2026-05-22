@@ -9,6 +9,12 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'sonner';
+import { useNexusWallet } from '../lib/useNexusWallet';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { CONTRACT_ADDRESSES } from '../lib/contracts';
+import DonationABI from '../lib/abi/Donation.json';
+import { safeParseCampaignId } from '../lib/ugf';
+import { ethers } from 'ethers';
 
 const campaignSchema = z.object({
   title: z.string().min(5, 'Title must be at least 5 characters'),
@@ -24,6 +30,9 @@ const campaignSchema = z.object({
     const [loading, setLoading] = useState(true);
     const [ngoId, setNgoId] = useState(null);
     const [campaigns, setCampaigns] = useState([]);
+
+    const { isConnected, getSigner, isDevWalletEnabled, connectDevWallet } = useNexusWallet();
+    const [isCreatingOnChain, setIsCreatingOnChain] = useState(false);
     
     useEffect(() => {
       const fetchNgoData = async () => {
@@ -76,8 +85,19 @@ const campaignSchema = z.object({
         return;
       }
 
+      if (!isConnected) {
+        toast.error('Please connect your wallet to launch a campaign on-chain');
+        return;
+      }
+
+      setIsCreatingOnChain(true);
+      const toastId = toast.loading('Initializing campaign launch...');
+      let tempCampaign = null;
+
       try {
-        const { data: newCampaign, error } = await supabase
+        // 1. Save to Supabase to generate the UUID
+        toast.loading('Saving campaign details to database...', { id: toastId });
+        const { data: newCampaign, error: dbError } = await supabase
           .from('campaigns')
           .insert({
             ...data,
@@ -87,15 +107,55 @@ const campaignSchema = z.object({
           .select()
           .single();
 
-        if (error) throw error;
+        if (dbError) throw dbError;
+        tempCampaign = newCampaign;
 
-        toast.success('Campaign created successfully!');
+        // 2. Parse UUID to a uint256 BigInt
+        const parsedCampaignId = safeParseCampaignId(newCampaign.id);
+
+        // 3. Submit transaction to the blockchain
+        toast.loading('Please sign the transaction in your wallet...', { id: toastId });
+        const goalAmountWei = BigInt(Math.floor(data.goal_amount)) * BigInt(10 ** 18);
+
+        const signer = await getSigner();
+        const donationContract = new ethers.Contract(
+          CONTRACT_ADDRESSES.baseSepolia.donation,
+          DonationABI,
+          signer
+        );
+        const tx = await donationContract.createCampaign(
+          parsedCampaignId,
+          data.title,
+          data.description,
+          goalAmountWei
+        );
+        await tx.wait();
+
+        toast.success('Campaign launched on-chain successfully!', { id: toastId });
         setCampaigns([newCampaign, ...campaigns]);
         setShowCreateModal(false);
         reset();
       } catch (error) {
         console.error('Error creating campaign:', error);
-        toast.error('Failed to create campaign');
+        
+        // Extract a friendly revert reason if available
+        let errorMsg = error.shortMessage || error.message || String(error);
+        if (errorMsg.includes('Only verified NGOs')) {
+          errorMsg = 'Only verified NGOs can create campaigns. Please make sure the admin has approved your wallet address on-chain.';
+        }
+        
+        toast.error(`Failed to launch campaign: ${errorMsg}`, { id: toastId });
+
+        // Database Rollback
+        if (tempCampaign) {
+          try {
+            await supabase.from('campaigns').delete().eq('id', tempCampaign.id);
+          } catch (deleteError) {
+            console.error('Failed to rollback database campaign record:', deleteError);
+          }
+        }
+      } finally {
+        setIsCreatingOnChain(false);
       }
     };
 
@@ -254,13 +314,34 @@ const campaignSchema = z.object({
                 />
               </div>
               
-              <div className="flex gap-4 pt-6">
-                <Button variant="secondary" className="flex-grow rounded-full h-14" type="button" onClick={() => setShowCreateModal(false)}>
-                  Cancel
-                </Button>
-                <Button className="flex-grow rounded-full h-14" type="submit">
-                  Launch
-                </Button>
+              <div className="flex flex-col gap-4 pt-6">
+                {!isConnected ? (
+                  <div className="flex flex-col items-center gap-3 w-full">
+                    <p className="text-sm font-semibold text-zinc-500">Please connect your wallet to launch a campaign on-chain</p>
+                    <ConnectButton />
+                    {isDevWalletEnabled && (
+                      <button
+                        type="button"
+                        onClick={connectDevWallet}
+                        className="w-full py-3 px-4 text-sm bg-zinc-800 hover:bg-lime-400 hover:text-black text-white font-bold rounded-full transition-all flex items-center justify-center gap-1.5 border border-zinc-700/50 hover:border-lime-400"
+                      >
+                        ⚡ Use Shared Test Wallet
+                      </button>
+                    )}
+                    <Button variant="secondary" className="w-full rounded-full h-14 mt-2" type="button" onClick={() => setShowCreateModal(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex gap-4 w-full">
+                    <Button variant="secondary" className="flex-grow rounded-full h-14" type="button" onClick={() => setShowCreateModal(false)}>
+                      Cancel
+                    </Button>
+                    <Button className="flex-grow rounded-full h-14" type="submit" disabled={isCreatingOnChain}>
+                      {isCreatingOnChain ? 'Launching...' : 'Launch'}
+                    </Button>
+                  </div>
+                )}
               </div>
             </form>
           </div>

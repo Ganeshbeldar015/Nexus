@@ -16,6 +16,8 @@ Frontend (React + Vite)
     └── ↕️
 Blockchain (Solidity + Hardhat)
 └── Donation Contract (TYI_MOCK_USD native)
+    ├── Ownable access control
+    ├── Verified NGOs feature
     └── ↕️
 Base Sepolia Network
     └── ↕️
@@ -55,10 +57,35 @@ The platform also uses Supabase for user management. This likely handles:
 
 ---
 
-## 3. Creating a Campaign (NGO)
+## 3. Verifying NGOs (Owner Only)
 
 ### Flow Steps:
-1. Connected NGO user navigates to campaign creation page
+1. Contract owner (deployer) connects wallet
+2. Owner calls `Donation.verifyNgo(ngoAddress, true)`
+3. Transaction is signed by owner
+4. Gas fees paid in ETH
+5. NGO is marked as verified on-chain
+6. `NgoVerified` event is emitted
+
+### Smart Contract Interaction:
+```solidity
+// Donation.sol
+function verifyNgo(address _ngo, bool _status) public onlyOwner {
+    verifiedNgos[_ngo] = _status;
+    emit NgoVerified(_ngo, _status);
+}
+```
+
+### Important:
+- Only contract owner (deployer) can verify NGOs
+- Verified NGOs can create campaigns
+
+---
+
+## 4. Creating a Campaign (Verified NGO Only)
+
+### Flow Steps:
+1. **Verified NGO** user navigates to campaign creation page
 2. Fills out form: title, description, target amount
 3. Submits form
 4. Frontend calls `Donation.createCampaign()` via Wagmi
@@ -75,6 +102,7 @@ function createCampaign(
     string memory _description,
     uint256 _targetAmount
 ) public {
+    require(verifiedNgos[msg.sender], "Only verified NGOs can create campaigns");
     campaignCount++;
     campaigns[campaignCount] = Campaign(...);
     emit CampaignCreated(...);
@@ -88,7 +116,7 @@ function createCampaign(
 
 ---
 
-## 4. Token Setup
+## 5. Token Setup
 
 ### **Option A: Custom MockUSD (Local Testing Only)**
 - `MockUSD.sol` has a public `mint()` function
@@ -110,9 +138,9 @@ In a real production scenario, this would be restricted or replaced with actual 
 
 ---
 
-## 5. Donating to a Campaign (Donor)
+## 6. Donating to a Campaign (Donor)
 
-### **Option 1: Traditional 2-Step Process (Requires ETH for gas)
+### **Option 1: Traditional 2-Step Process (Requires ETH for gas)**
 
 #### Step 1: Approve Token Spending
 Before donating, the donor must approve the Donation contract to spend their MockUSD.
@@ -153,7 +181,7 @@ This is the recommended flow for the hackathon. Uses EIP-2612 Permit to allow of
 8. Smart contract records donation
 9. Frontend updates campaign dashboard
 
-#### Detailed Steps (Technical:
+#### Detailed Steps (Technical):
 1. Donor enters donation amount
 2. Frontend generates a permit signature (using wallet's signPermit)
 3. Frontend prepares encoded transaction data for `donateToCampaignWithPermit()`
@@ -214,7 +242,7 @@ function donateToCampaignWithPermit(
 
 ---
 
-## 6. Withdrawing Funds (NGO)
+## 7. Withdrawing Funds (NGO)
 
 ### Flow Steps:
 1. NGO navigates to their campaign
@@ -248,7 +276,7 @@ function withdrawFunds(uint256 _campaignId, uint256 _amount) public {
 
 ---
 
-## 7. Adding Usage Records (NGO)
+## 8. Adding Usage Records (NGO)
 
 ### Flow Steps:
 1. NGO adds a usage record with amount, description, receipt URL
@@ -263,7 +291,7 @@ Transparency - donors can see how funds were used.
 
 ---
 
-## 8. Reading Data from Blockchain
+## 9. Reading Data from Blockchain
 
 All contract data can be read without gas fees (read operations are free):
 
@@ -273,6 +301,7 @@ All contract data can be read without gas fees (read operations are free):
 - `campaigns` (public mapping) - Directly access campaign data
 - `donationToken` - Get token address
 - `campaignCount` - Get total campaigns
+- `verifiedNgos(ngoAddress)` - Check if NGO is verified
 
 ---
 
@@ -280,11 +309,13 @@ All contract data can be read without gas fees (read operations are free):
 
 ### Blockchain:
 - ✅ Donation.sol contract (ERC20 token donation)
+- ✅ Ownable access control
+- ✅ Verified NGOs feature
 - ✅ MockUSD.sol test token with EIP-2612 Permit support
 - ✅ `donateToCampaignWithPermit()` function for single-transaction donations
 - ✅ Hardhat config with Base Sepolia
 - ✅ Ignition deployment module
-- ✅ Test suite (4 passing tests)
+- ✅ Test suite (6 passing tests)
 - ✅ ABI export script
 
 ### Frontend:
@@ -345,7 +376,8 @@ All contract data can be read without gas fees (read operations are free):
 
 | Action | Who Pays | Token Used |
 |--------|----------|------------|
-| Create Campaign | NGO | ETH |
+| Verify NGO | Owner | ETH |
+| Create Campaign | Verified NGO | ETH |
 | Approve Tokens (Option 1) | Donor | ETH |
 | Donate (Option 1) | Donor | ETH (gas) + MockUSD (donation) |
 | Donate (Option 2 - UGF) | UGF | ETH (gas) + Donor | MockUSD (donation) |
@@ -382,8 +414,9 @@ Smart Contracts (Donation.sol, MockUSD.sol)
 ```
 
 ### Key Frontend → Blockchain Calls:
+- `Donation.verifyNgo()` - Verify NGO (owner only)
 - `MockUSD.approve()` → Prior to donation (Option 1)
-- `Donation.createCampaign()` → Create campaign
+- `Donation.createCampaign()` → Create campaign (verified NGO only)
 - `Donation.donateToCampaign()` → Donate (Option 1)
 - `Donation.donateToCampaignWithPermit()` → Donate (Option 2 - UGF)
 - `Donation.withdrawFunds()` → Withdraw

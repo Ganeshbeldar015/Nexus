@@ -31,7 +31,6 @@ const Landing = () => {
   if (user?.role === 'ngo') {
     return <Navigate to="/ngo-dashboard" replace />;
   }
-
   return (
     <div className="relative min-h-screen overflow-hidden bg-black text-white antialiased font-sans">
       
@@ -63,15 +62,17 @@ const Landing = () => {
           >
             {/* Gen-Z Editorial Headline */}
             <div className="w-full text-left">
-                <h1 className="text-[3.5rem] sm:text-[5rem] md:text-[7rem] lg:text-[8.5rem] font-display font-black tracking-tighter leading-[0.85] uppercase text-white">
+                <h1 className="text-[3rem] sm:text-[4.5rem] md:text-[6rem] lg:text-[7rem] xl:text-[8rem] font-display font-black tracking-tighter leading-[0.9] uppercase text-white ">
                   WHERE <br />
                   <span className="font-serif italic font-medium text-lime-400 lowercase tracking-normal pl-8 sm:pl-16 md:pl-32 drop-shadow-[0_0_40px_rgba(163,230,53,0.4)] block -mt-2 md:-mt-4">
                     humanity
                   </span>
                   MEETS <br />
-                  <span className="font-display text-transparent [-webkit-text-stroke:2px_white] block -mt-1 md:-mt-3">
-                    TRANSPARENCY.
-                  </span>
+                  <span className="font-display text-5xl md:text-8xl text-transparent [-webkit-text-stroke:2px_white] block -mt-1 md:-mt-3">
+  TRANSPARENCY.
+</span>
+                    
+                  
                 </h1>
             </div>
 
