@@ -292,101 +292,127 @@ export async function getChainEntry() {
  * @param {Function} [params.onProgress] - Progress callback: (step, data) => void
  * @returns {Promise<{ userTxHash: string, digest: string }>}
  */
-export async function donateWithUGF({ signer, provider, campaignId, amount, message, onProgress }) {
+export async function donateWithUGF({ signer, provider, campaignId, amount, message, tokenType = 'USDC', onProgress }) {
   const progress = onProgress || (() => {});
-  const donationContractAddress = CONTRACT_ADDRESSES.baseSepolia.donation;
-  const tokenAddress = CONTRACT_ADDRESSES.baseSepolia.tyiMockUSD;
+  const client = getUGFClient();
   const payerAddress = await signer.getAddress();
-  const resolvedPayerAddress = ethers.getAddress(payerAddress);
-  const resolvedDonationAddress = ethers.getAddress(donationContractAddress);
-  const resolvedTokenAddress = ethers.getAddress(tokenAddress);
 
-  // TYI_MOCK_USD uses 6 decimals (like USDC), not 18
-  let amountWei;
-  try {
-    amountWei = ethers.parseUnits(amount, 6);
-  } catch {
-    amountWei = BigInt(amount) * BigInt(10 ** 6);
-  }
-
-  // 1. Authenticate
-  progress('auth', { status: 'Authenticating with UGF...' });
+  // 1. Authenticate with UGF
+  progress('auth', { status: 'Authenticating with Universal Gas Framework...' });
   if (!isUGFAuthenticated()) {
     await loginToUGF(signer);
   }
-  progress('auth', { status: 'Authenticated' });
+  progress('auth', { status: 'Authenticated with Universal Gas Framework!' });
 
-  // 2. Check token allowance and approve if needed
-  progress('approve', { status: 'Checking token allowance...' });
-  const readProvider = await getFallbackProvider();
-  const tokenContract = new ethers.Contract(
-    resolvedTokenAddress,
-    MockUSDABI,
-    readProvider
-  );
+  // 2. Prepare transaction parameters
+  progress('prepare', { status: 'Preparing donation transaction...' });
+  const receivingAddress = ethers.getAddress('0xf9770f2bec2e1353478d021b41146e5a1b70dd7c');
+  
+  let toAddress = receivingAddress;
+  let txValue = '0';
+  let txData = '0x';
+  let decimals = 18;
 
-  let currentAllowance = 0n;
-  try {
-    currentAllowance = await tokenContract.allowance(resolvedPayerAddress, resolvedDonationAddress);
-  } catch (err) {
-    console.warn('Could not fetch allowance, assuming 0:', err.message);
-  }
-
-  if (currentAllowance < amountWei) {
-    progress('approve', { status: 'Approving token transfer... Please sign in wallet.' });
-
-    // Send a standard (non-sponsored) approve transaction
-    // UGF testnet gateway only sponsors verified contracts, so standard ERC-20 approvals must be paid by the user.
-    const tx = await tokenContract.connect(signer).approve(resolvedDonationAddress, amountWei);
-    progress('approve', { status: 'Waiting for approval transaction to confirm...' });
-    await tx.wait();
-
-    progress('approve', { status: 'Token approved!' });
+  if (tokenType === 'ETH') {
+    toAddress = receivingAddress;
+    txValue = ethers.parseEther(amount).toString();
+    txData = '0x';
   } else {
-    progress('approve', { status: 'Token already approved' });
+    // For ERC20 tokens
+    let tokenAddress = '';
+    if (tokenType === 'USDC') {
+      tokenAddress = ethers.getAddress('0x036cbd53842c5426634e7929541ec2318f3dcf7e'); // Base Sepolia USDC
+      decimals = 6; // USDC has 6 decimals
+    } else if (tokenType === 'EURC') {
+      tokenAddress = ethers.getAddress('0x808456652fdb597867f38412077A9182bf77359F'); // Base Sepolia EURC
+      decimals = 6; // EURC has 6 decimals
+    } else if (tokenType === 'TYI_MOCK_USD') {
+      tokenAddress = ethers.getAddress('0x27DC1C167AeF232bb1e21073304B526726a8727e'); // Tychi Labs Mock USD
+      decimals = 6; // Mock USD has 6 decimals
+    }
+
+    toAddress = tokenAddress;
+    const amountWei = ethers.parseUnits(amount, decimals);
+
+    // Pre-flight balance check to prevent MetaMask/estimateGas silent reverts
+    const tokenContract = new ethers.Contract(tokenAddress, [
+      'function balanceOf(address owner) view returns (uint256)'
+    ], provider);
+    const balance = await tokenContract.balanceOf(payerAddress);
+    if (balance < amountWei) {
+      const humanBalance = ethers.formatUnits(balance, decimals);
+      throw new Error(`Insufficient ${tokenType} balance! Your wallet has ${humanBalance} ${tokenType} at address ${tokenAddress}, but you tried to donate ${amount} ${tokenType}. Please use the Circle Faucet to get mock tokens.`);
+    }
+    
+    const erc20Interface = new ethers.Interface([
+      'function transfer(address to, uint256 value) returns (bool)'
+    ]);
+    txData = erc20Interface.encodeFunctionData('transfer', [receivingAddress, amountWei]);
+    txValue = '0';
   }
 
-  // 3. Encode donation transaction (standard donateToCampaign, not permit version)
-  progress('encode', { status: 'Preparing donation transaction...' });
-  const encodedData = encodeDonationTransaction(campaignId, amountWei, message);
-  progress('encode', { status: 'Transaction prepared' });
-
-  // 4. Get quote for donation
-  progress('quote', { status: 'Getting gas sponsorship quote...' });
-  const quote = await getDonationQuote({
-    payerAddress: resolvedPayerAddress,
-    to: resolvedDonationAddress,
-    data: encodedData,
+  // 3. Get quote from UGF
+  progress('quote', { status: 'Requesting gas sponsorship quote...' });
+  const txObject = JSON.stringify({
+    from: payerAddress,
+    to: toAddress,
+    value: txValue,
+    data: txData,
   });
+
+  const quote = await client.quote.get({
+    payment_coin: UGF_CONFIG.paymentCoin,
+    payer_address: payerAddress,
+    payment_chain: UGF_CONFIG.chainId,
+    payment_chain_type: UGF_CONFIG.chainType,
+    tx_object: txObject,
+    dest_chain_id: UGF_CONFIG.chainId,
+    dest_chain_type: UGF_CONFIG.chainType,
+  });
+
+  // Calculate user-friendly quote fee representation (MockUSD usually has 6 decimals)
+  const feeDisplay = (parseFloat(quote.payment_amount) / 1e6).toFixed(2);
   progress('quote', {
-    status: 'Quote received',
+    status: `Quote received! Gas fee: ${feeDisplay} TYI_MOCK_USD.`,
     paymentAmount: quote.payment_amount,
     gasAmount: quote.gas_amount,
     digest: quote.digest,
-    expiresAt: quote.expires_at,
   });
 
-  // 5. Pay for gas
-  progress('payment', { status: 'Paying gas fee in MockUSD...' });
-  await payForGas(quote, signer, provider);
-  progress('payment', { status: 'Gas fee paid' });
+  // 3.5. Check if user has enough TYI_MOCK_USD to pay the UGF gas fee
+  const tyiMockUSDAddress = CONTRACT_ADDRESSES.baseSepolia.tyiMockUSD;
+  const tyiContract = new ethers.Contract(tyiMockUSDAddress, [
+    'function balanceOf(address owner) view returns (uint256)'
+  ], provider);
+  const tyiBalance = await tyiContract.balanceOf(payerAddress);
+  const requiredFee = BigInt(quote.payment_amount);
+  if (tyiBalance < requiredFee) {
+    const humanTyiBalance = (parseFloat(tyiBalance.toString()) / 1e6).toFixed(2);
+    throw new Error(`Insufficient TYI_MOCK_USD for UGF gas fees! The transaction requires a fee of ${feeDisplay} TYI_MOCK_USD to sponsor gas on Base Sepolia, but your wallet currently has ${humanTyiBalance} TYI_MOCK_USD. Please connect your wallet to the UGF Faucet (https://faucet.tychilabs.com/) to get free TYI_MOCK_USD.`);
+  }
 
-  // 6. Execute sponsored donation transaction
-  progress('execute', { status: 'Executing donation on-chain...' });
-  const result = await executeSponsoredTransaction(
+  // 4. Pay UGF Gas fee (sign and submit x402 payment in TYI_MOCK_USD)
+  progress('payment', { status: 'Please sign the gas fee payment of TYI_MOCK_USD in MetaMask...' });
+  await client.payment.x402.execute({ quote, signer });
+  progress('payment', { status: 'Gas fee successfully paid!' });
+
+  // 5. Execute sponsored transaction
+  progress('execute', { status: 'Executing sponsored transfer on-chain...' });
+  
+  const result = await client.chains.evm.sponsorAndExecute(
     quote.digest,
     signer,
-    async (s) => ({
-      to: resolvedDonationAddress,
-      data: encodedData,
-      value: 0,
+    async () => ({
+      to: toAddress,
+      value: BigInt(txValue),
+      data: txData,
     }),
     {
-      maxAttempts: 30,
-      intervalMs: 2000,
+      maxAttempts: 35,
+      intervalMs: 2500,
       onTick: (status, attempt) => {
         progress('execute', {
-          status: `Waiting for sponsorship... (attempt ${attempt})`,
+          status: `Sponsorship confirmed! Waiting for transaction execution... (attempt ${attempt})`,
           txStatus: status.status,
         });
       },
@@ -396,7 +422,6 @@ export async function donateWithUGF({ signer, provider, campaignId, amount, mess
   progress('complete', {
     status: 'Donation successful!',
     userTxHash: result.userTxHash,
-    digest: quote.digest,
   });
 
   return {

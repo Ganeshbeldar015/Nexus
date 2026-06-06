@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { ethers } from 'ethers';
 import { useParams, useNavigate } from 'react-router-dom';
 import { mockDb } from '../services/mockDb';
 import { useAuth } from '../context/AuthContext';
@@ -24,6 +25,7 @@ const CampaignDetails = () => {
   const [isDonating, setIsDonating] = useState(false);
   const [ugfStep, setUgfStep] = useState(null);
   const [spendingLogs, setSpendingLogs] = useState([]);
+  const [selectedToken, setSelectedToken] = useState('USDC');
 
 
   useEffect(() => {
@@ -118,7 +120,50 @@ const CampaignDetails = () => {
     setUgfStep('initializing');
     
     try {
-      const amount = parseFloat(donationAmount);
+      const rawAmount = parseFloat(donationAmount);
+      let amount = rawAmount;
+      if (selectedToken === 'ETH') {
+        amount = rawAmount * 3000; // Mock ETH Price: $3,000
+      } else if (selectedToken === 'EURC') {
+        amount = rawAmount * 1.08; // EURC to USD rate
+      } else if (selectedToken === 'TYI_MOCK_USD') {
+        amount = rawAmount; // Mock USD is 1:1 with USD
+      }
+      amount = Math.round(amount * 100) / 100; // Round to 2 decimal places
+
+      // Pre-check ERC20 balance to avoid gas estimation fails
+      if (selectedToken !== 'ETH') {
+        const checkSigner = await getSigner();
+        const checkProvider = checkSigner.provider;
+        const checkPayer = await checkSigner.getAddress();
+        
+        let checkAddress = '';
+        if (selectedToken === 'USDC') {
+          checkAddress = ethers.getAddress('0x036cbd53842c5426634e7929541ec2318f3dcf7e');
+        } else if (selectedToken === 'EURC') {
+          checkAddress = ethers.getAddress('0x808456652fdb597867f38412077A9182bf77359F');
+        } else if (selectedToken === 'TYI_MOCK_USD') {
+          checkAddress = ethers.getAddress('0x27DC1C167AeF232bb1e21073304B526726a8727e');
+        }
+
+        const erc20 = new ethers.Contract(checkAddress, [
+          'function balanceOf(address owner) view returns (uint256)',
+          'function decimals() view returns (uint8)'
+        ], checkProvider);
+
+        const checkBalance = await erc20.balanceOf(checkPayer);
+        const checkDecimals = await erc20.decimals();
+        const checkRequired = ethers.parseUnits(donationAmount, checkDecimals);
+
+        if (checkBalance < checkRequired) {
+          const friendlyName = selectedToken;
+          const currentBalFormatted = ethers.formatUnits(checkBalance, checkDecimals);
+          toast.error(`Insufficient ${friendlyName} balance! You have ${currentBalFormatted} ${friendlyName}, but are trying to donate ${donationAmount}. Please claim tokens or use another asset.`);
+          setIsDonating(false);
+          setUgfStep(null);
+          return;
+        }
+      }
       let txHash;
 
       // ─── UGF BLOCKCHAIN FLOW ──────────────────────────────────────────────
@@ -134,6 +179,7 @@ const CampaignDetails = () => {
           campaignId: campaign.id,
           amount: donationAmount,
           message: `Donation for ${campaign.title}`,
+          tokenType: selectedToken,
           onProgress: (step, data) => {
             setUgfStep(step);
             toast.loading(data.status, { id: toastId });
@@ -141,6 +187,14 @@ const CampaignDetails = () => {
         });
 
         txHash = result.userTxHash;
+        
+        // Wait for transaction to be mined to verify it did not revert!
+        toast.loading('Verifying transaction on-chain...', { id: toastId });
+        const receipt = await provider.waitForTransaction(txHash);
+        if (receipt.status !== 1) {
+          throw new Error('On-chain transaction execution reverted! Please check your token balance.');
+        }
+
         toast.success('Blockchain transaction successful!', { id: toastId });
       } catch (ugfErr) {
         console.error("UGF Flow failed:", ugfErr);
@@ -179,12 +233,13 @@ const CampaignDetails = () => {
         raised_amount: (parseFloat(campaign.raised_amount) || 0) + amount
       });
       setDonations([newDonation, ...donations.slice(0, 4)]);
-      toast.success(`Thank you! Your donation of $${donationAmount} was successful.`);
+      const displayUSD = amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      toast.success(`Thank you! Your donation of ${donationAmount} ${selectedToken} (approx. $${displayUSD} USD) was successful.`);
       setDonationAmount('');
     } catch (err) {
       console.error("Donation failed:", err);
-      // Only show generic error if UGF has already failed/shown its error
-      if (ugfStep === null || ugfStep === 'initializing') {
+      // Only show generic error if UGF was never initialized
+      if (ugfStep === null) {
         toast.error('Donation failed. Please check your wallet connection and try again.');
       }
     } finally {
@@ -279,9 +334,63 @@ const CampaignDetails = () => {
              </div>
            )}
 
-           <form onSubmit={handleDonate} className="space-y-4">
+           <form onSubmit={handleDonate} className="space-y-6">
+             {/* Premium Token Selection Grid */}
+             <div className="space-y-2">
+               <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest text-center">
+                 Select Donation Token
+               </label>
+               <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { symbol: 'USDC', network: 'Base Sepolia', icon: '💵', desc: 'USDC (Base)' },
+                    { symbol: 'EURC', network: 'Base Sepolia', icon: '💶', desc: 'EURC (Base)' },
+                    { symbol: 'ETH', network: 'Base Sepolia', icon: '🔷', desc: 'ETH (Base)' },
+                  ].map((t) => (
+                   <button
+                     key={t.symbol}
+                     type="button"
+                     onClick={() => setSelectedToken(t.symbol)}
+                     className={`p-3 rounded-2xl border-2 flex flex-col items-center gap-1 transition-all duration-300 ${
+                       selectedToken === t.symbol
+                         ? 'bg-black text-white border-black scale-102 shadow-md font-bold'
+                         : 'bg-zinc-50 text-zinc-700 border-zinc-100 hover:border-zinc-300'
+                     }`}
+                     disabled={!isConnected}
+                   >
+                     <span className="text-xl">{t.icon}</span>
+                     <span className="font-extrabold text-sm">{t.symbol}</span>
+                     <span className={`text-[9px] font-bold uppercase tracking-wider ${
+                       selectedToken === t.symbol ? 'text-zinc-400' : 'text-zinc-500'
+                     }`}>{t.network}</span>
+                   </button>
+                 ))}
+               </div>
+             </div>
+
+             {/* NGO Receiving Address Details */}
+             <div className="p-4 bg-zinc-50 border border-zinc-100 rounded-2xl text-center space-y-1.5">
+               <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                 NGO Receiving Wallet
+               </span>
+               <div className="flex items-center justify-center gap-1.5">
+                 <p className="text-xs font-mono font-bold text-zinc-700 select-all">
+                   0xF9770f2BEC2E1353478d021b41146E5a1B70DD7C
+                 </p>
+                 <button
+                   type="button"
+                   onClick={() => {
+                     navigator.clipboard.writeText('0xF9770f2BEC2E1353478d021b41146E5a1B70DD7C');
+                     toast.success('Address copied!');
+                   }}
+                   className="p-1 text-zinc-400 hover:text-black rounded transition-colors"
+                   title="Copy Address"
+                 >
+                   📋
+                 </button>
+               </div>
+             </div>
              <div className="relative">
-               <span className="absolute left-6 top-1/2 -translate-y-1/2 text-2xl font-black text-zinc-400">$</span>
+               <span className="absolute left-6 top-1/2 -translate-y-1/2 text-2xl font-black text-zinc-400">{selectedToken === 'ETH' ? 'Ξ' : '$'}</span>
                <input 
                  type="number"
                  placeholder="0.00"
@@ -298,7 +407,7 @@ const CampaignDetails = () => {
                loading={isDonating}
                disabled={!isConnected}
              >
-               {isConnected ? 'Donate Now' : 'Connect Wallet to Donate'}
+               {isConnected ? `Donate ${selectedToken === 'TYI_MOCK_USD' ? 'Mock USD' : selectedToken}` : 'Connect Wallet to Donate'}
              </Button>
            </form>
 
