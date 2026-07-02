@@ -4,6 +4,13 @@ import {
   RainbowKitProvider,
   darkTheme,
 } from '@rainbow-me/rainbowkit';
+import {
+  injectedWallet,
+  metaMaskWallet,
+  coinbaseWallet,
+  rainbowWallet,
+  walletConnectWallet,
+} from '@rainbow-me/rainbowkit/wallets';
 import { WagmiProvider, http } from 'wagmi';
 import {
   baseSepolia,
@@ -13,14 +20,28 @@ import {
   QueryClient,
 } from "@tanstack/react-query";
 
+const projectId = import.meta.env.VITE_WALLET_CONNECT_PROJECT_ID || 'f246a67a5872d1fbe3fef519eacd900a';
+
 export const config = getDefaultConfig({
   appName: 'Disaster Relief Transparent Donation Network',
-  projectId: import.meta.env.VITE_WALLET_CONNECT_PROJECT_ID || 'f246a67a5872d1fbe3fef519eacd900a',
+  projectId,
   chains: [baseSepolia],
   ssr: false,
   transports: {
     [baseSepolia.id]: http(),
   },
+  wallets: [
+    {
+      groupName: 'Recommended',
+      wallets: [
+        injectedWallet,
+        metaMaskWallet,
+        coinbaseWallet,
+        rainbowWallet,
+        walletConnectWallet,
+      ],
+    },
+  ],
 });
 
 const queryClient = new QueryClient({

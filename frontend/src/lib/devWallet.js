@@ -1,4 +1,4 @@
-import { Wallet } from 'ethers';
+import { Wallet, keccak256, toUtf8Bytes } from 'ethers';
 
 const privateKey = import.meta.env.VITE_DEV_PRIVATE_KEY;
 
@@ -14,16 +14,39 @@ export function isDevWalletEnabled() {
 }
 
 /**
+ * Get private key for a specific role.
+ * NGO gets VITE_DEV_NGO_PRIVATE_KEY or a deterministic key derived from VITE_DEV_PRIVATE_KEY.
+ * Donor and others get VITE_DEV_PRIVATE_KEY.
+ */
+export function getPrivateKeyForRole(role) {
+  if (!isDevWalletEnabled()) return null;
+  const cleanKey = privateKey.trim();
+  const formattedKey = cleanKey.startsWith('0x') ? cleanKey : `0x${cleanKey}`;
+  
+  if (role === 'ngo') {
+    const ngoKey = import.meta.env.VITE_DEV_NGO_PRIVATE_KEY;
+    if (ngoKey && ngoKey.trim() !== '') {
+      return ngoKey.startsWith('0x') ? ngoKey.trim() : `0x${ngoKey.trim()}`;
+    }
+    // Deterministic derivation for NGO key
+    return keccak256(toUtf8Bytes(formattedKey + '_ngo'));
+  }
+  
+  return formattedKey;
+}
+
+/**
  * Derives the wallet address from the configured private key
  */
-export function getDevWalletAddress() {
+export function getDevWalletAddress(role = localStorage.getItem('nexus_user_role')) {
   if (!isDevWalletEnabled()) return null;
   try {
-    const formattedKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
-    const wallet = new Wallet(formattedKey);
+    const key = getPrivateKeyForRole(role);
+    if (!key) return null;
+    const wallet = new Wallet(key);
     return wallet.address;
   } catch (e) {
-    console.error('Failed to parse VITE_DEV_PRIVATE_KEY:', e);
+    console.error(`Failed to parse private key for role ${role}:`, e);
     return null;
   }
 }
@@ -31,13 +54,14 @@ export function getDevWalletAddress() {
 /**
  * Creates and returns an ethers Wallet instance connected to the provider
  */
-export function getDevSigner(provider) {
+export function getDevSigner(provider, role = localStorage.getItem('nexus_user_role')) {
   if (!isDevWalletEnabled()) return null;
   try {
-    const formattedKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
-    return new Wallet(formattedKey, provider);
+    const key = getPrivateKeyForRole(role);
+    if (!key) return null;
+    return new Wallet(key, provider);
   } catch (e) {
-    console.error('Failed to get Dev Signer:', e);
+    console.error(`Failed to get Dev Signer for role ${role}:`, e);
     return null;
   }
 }

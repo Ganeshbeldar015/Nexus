@@ -1,181 +1,61 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract Donation is Ownable {
-    struct Campaign {
-        uint256 id;
-        address ngo;
-        string title;
-        string description;
-        uint256 targetAmount;
-        uint256 raisedAmount;
-        uint256 withdrawnAmount;
-        bool active;
+    struct CampaignRegistry {
+        uint256 campaignId;
+        address safeAddress;
+        string darpanId;
     }
 
-    struct UsageRecord {
-        uint256 amount;
-        string description;
-        string receiptUrl;
-        uint256 timestamp;
-    }
+    mapping(uint256 => CampaignRegistry) public campaignRegistry;
+    uint256[] public registeredCampaignIds;
 
-    struct DonationRecord {
-        address donor;
-        uint256 amount;
-        uint256 timestamp;
-        string message;
-    }
+    event CampaignRegistered(uint256 indexed campaignId, address indexed safeAddress, string darpanId);
+    event Donated(uint256 indexed campaignId, address indexed donor, address token, uint256 amount, string message);
 
-    IERC20 public donationToken;
-    uint256 public campaignCount;
+    constructor() Ownable(msg.sender) {}
 
-    mapping(uint256 => Campaign) public campaigns;
-    mapping(uint256 => UsageRecord[]) public usageRecords;
-    mapping(uint256 => DonationRecord[]) public donationHistory;
-    mapping(address => bool) public verifiedNgos;
-
-    event CampaignCreated(uint256 indexed id, address indexed ngo, string title);
-    event Donated(uint256 indexed campaignId, address indexed donor, uint256 amount, string message);
-    event FundsWithdrawn(uint256 indexed campaignId, uint256 amount);
-    event UsageRecordAdded(uint256 indexed campaignId, uint256 amount, string description);
-    event NgoVerified(address indexed ngo, bool status);
-
-    constructor(address _donationToken) Ownable(msg.sender) {
-        donationToken = IERC20(_donationToken);
-    }
-
-    function verifyNgo(address _ngo, bool _status) public onlyOwner {
-        verifiedNgos[_ngo] = _status;
-        emit NgoVerified(_ngo, _status);
-    }
-
-    function createCampaign(
+    function registerCampaign(
         uint256 _campaignId,
-        string memory _title,
-        string memory _description,
-        uint256 _targetAmount
-    ) public {
-        require(verifiedNgos[msg.sender], "Only verified NGOs can create campaigns");
-        require(campaigns[_campaignId].id == 0, "Campaign already exists");
-        campaignCount++;
-        campaigns[_campaignId] = Campaign(
-            _campaignId,
-            msg.sender,
-            _title,
-            _description,
-            _targetAmount,
-            0,
-            0,
-            true
-        );
+        address _safeAddress,
+        string memory _darpanId
+    ) public onlyOwner {
+        require(_safeAddress != address(0), "Invalid Safe address");
+        require(campaignRegistry[_campaignId].safeAddress == address(0), "Campaign already registered");
 
-        emit CampaignCreated(_campaignId, msg.sender, _title);
+        campaignRegistry[_campaignId] = CampaignRegistry({
+            campaignId: _campaignId,
+            safeAddress: _safeAddress,
+            darpanId: _darpanId
+        });
+
+        registeredCampaignIds.push(_campaignId);
+
+        emit CampaignRegistered(_campaignId, _safeAddress, _darpanId);
     }
 
-    function donateToCampaign(uint256 _campaignId, uint256 _amount, string memory _message) public {
-        require(campaigns[_campaignId].active, "Campaign is not active");
+    function donateToCampaign(
+        uint256 _campaignId,
+        address _token,
+        uint256 _amount,
+        string memory _message
+    ) public {
+        address safeAddress = campaignRegistry[_campaignId].safeAddress;
+        require(safeAddress != address(0), "Campaign is not registered on-chain");
         require(_amount > 0, "Amount must be > 0");
 
-        donationToken.transferFrom(msg.sender, address(this), _amount);
+        // Transfer tokens directly from donor to the Gnosis Safe multisig wallet
+        IERC20(_token).transferFrom(msg.sender, safeAddress, _amount);
 
-        campaigns[_campaignId].raisedAmount += _amount;
-
-        donationHistory[_campaignId].push(DonationRecord(
-            msg.sender,
-            _amount,
-            block.timestamp,
-            _message
-        ));
-
-        emit Donated(_campaignId, msg.sender, _amount, _message);
+        emit Donated(_campaignId, msg.sender, _token, _amount, _message);
     }
 
-    function donateToCampaignWithPermit(
-        uint256 _campaignId,
-        uint256 _amount,
-        string memory _message,
-        uint256 _deadline,
-        uint8 _v,
-        bytes32 _r,
-        bytes32 _s
-    ) public {
-        require(campaigns[_campaignId].active, "Campaign is not active");
-        require(_amount > 0, "Amount must be > 0");
-
-        // Execute permit (off-chain signature becomes on-chain approval)
-        IERC20Permit(address(donationToken)).permit(
-            msg.sender,
-            address(this),
-            _amount,
-            _deadline,
-            _v,
-            _r,
-            _s
-        );
-
-        donationToken.transferFrom(msg.sender, address(this), _amount);
-
-        campaigns[_campaignId].raisedAmount += _amount;
-
-        donationHistory[_campaignId].push(DonationRecord(
-            msg.sender,
-            _amount,
-            block.timestamp,
-            _message
-        ));
-
-        emit Donated(_campaignId, msg.sender, _amount, _message);
-    }
-
-    function withdrawFunds(uint256 _campaignId, uint256 _amount) public {
-        Campaign storage campaign = campaigns[_campaignId];
-        require(msg.sender == campaign.ngo, "Only campaign owner can withdraw");
-        uint256 available = campaign.raisedAmount - campaign.withdrawnAmount;
-        require(_amount <= available, "Insufficient funds");
-
-        campaign.withdrawnAmount += _amount;
-        donationToken.transfer(campaign.ngo, _amount);
-
-        emit FundsWithdrawn(_campaignId, _amount);
-    }
-
-    function addUsageRecord(
-        uint256 _campaignId,
-        uint256 _amount,
-        string memory _description,
-        string memory _receiptUrl
-    ) public {
-        require(msg.sender == campaigns[_campaignId].ngo, "Only campaign owner can add usage record");
-
-        usageRecords[_campaignId].push(UsageRecord(
-            _amount,
-            _description,
-            _receiptUrl,
-            block.timestamp
-        ));
-
-        emit UsageRecordAdded(_campaignId, _amount, _description);
-    }
-
-    function toggleCampaignStatus(uint256 _campaignId) public {
-        require(msg.sender == campaigns[_campaignId].ngo, "Only campaign owner can toggle status");
-        campaigns[_campaignId].active = !campaigns[_campaignId].active;
-    }
-
-    function getCampaign(uint256 _campaignId) public view returns (Campaign memory) {
-        return campaigns[_campaignId];
-    }
-
-    function getDonationHistory(uint256 _campaignId) public view returns (DonationRecord[] memory) {
-        return donationHistory[_campaignId];
-    }
-
-    function getUsageRecords(uint256 _campaignId) public view returns (UsageRecord[] memory) {
-        return usageRecords[_campaignId];
+    function getRegisteredCampaignsCount() public view returns (uint256) {
+        return registeredCampaignIds.length;
     }
 }
+

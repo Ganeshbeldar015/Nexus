@@ -31,6 +31,15 @@ import DonationABI from './abi/Donation.json';
 import MockUSDABI from './abi/MockUSD.json';
 import { encodeFunctionData } from 'viem';
 import { ethers } from 'ethers';
+import { getFallbackProvider } from './providers';
+
+// Global monkeypatch for BigInt serialization in JSON.stringify to prevent
+// "TypeError: Do not know how to serialize a BigInt" in wallet providers.
+if (typeof BigInt !== 'undefined' && !BigInt.prototype.toJSON) {
+  BigInt.prototype.toJSON = function () {
+    return this.toString();
+  };
+}
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -133,6 +142,7 @@ export function encodeDonationTransaction(campaignId, amount, message) {
 /**
  * Encode a donateToCampaignWithPermit call (when permit support is added to contract).
  * 
+ * @param {string} payerAddress
  * @param {bigint|number|string} campaignId
  * @param {bigint} amount
  * @param {string} message
@@ -142,11 +152,11 @@ export function encodeDonationTransaction(campaignId, amount, message) {
  * @param {string} s
  * @returns {string} Encoded calldata (hex)
  */
-export function encodeDonationWithPermitTransaction(campaignId, amount, message, deadline, v, r, s) {
+export function encodeDonationWithPermitTransaction(payerAddress, campaignId, amount, message, deadline, v, r, s) {
   return encodeFunctionData({
     abi: DonationABI,
     functionName: 'donateToCampaignWithPermit',
-    args: [safeParseCampaignId(campaignId), BigInt(amount), message, BigInt(deadline), v, r, s],
+    args: [payerAddress, safeParseCampaignId(campaignId), BigInt(amount), message, BigInt(deadline), v, r, s],
   });
 }
 
@@ -166,7 +176,9 @@ export async function getDonationQuote({ payerAddress, to, data, value = '0' }) 
   const client = getUGFClient();
 
   // Build the tx_object as a JSON string (what UGF expects)
+  // Note: we MUST include 'from' field so that UGF gateway can parse payer details.
   const txObject = JSON.stringify({
+    from: payerAddress,
     to,
     value,
     data,
@@ -280,136 +292,127 @@ export async function getChainEntry() {
  * @param {Function} [params.onProgress] - Progress callback: (step, data) => void
  * @returns {Promise<{ userTxHash: string, digest: string }>}
  */
-export async function donateWithUGF({ signer, provider, campaignId, amount, message, onProgress }) {
+export async function donateWithUGF({ signer, provider, campaignId, amount, message, tokenType = 'USDC', receivingAddress, onProgress }) {
   const progress = onProgress || (() => {});
-  const donationContractAddress = CONTRACT_ADDRESSES.baseSepolia.donation;
-  const tokenAddress = CONTRACT_ADDRESSES.baseSepolia.tyiMockUSD;
+  const client = getUGFClient();
   const payerAddress = await signer.getAddress();
 
-  // 1. Authenticate
-  progress('auth', { status: 'Authenticating with UGF...' });
+  // 1. Authenticate with UGF
+  progress('auth', { status: 'Authenticating with Universal Gas Framework...' });
   if (!isUGFAuthenticated()) {
     await loginToUGF(signer);
   }
-  progress('auth', { status: 'Authenticated' });
+  progress('auth', { status: 'Authenticated with Universal Gas Framework!' });
 
-  // 2. Obtain EIP-2612 Permit Signature (Gasless Approval)
-  progress('permit_signing', { status: 'Please sign the gasless MockUSD approval in your wallet...' });
+  // 2. Prepare transaction parameters
+  progress('prepare', { status: 'Preparing donation transaction...' });
+  const finalReceivingAddress = ethers.getAddress(receivingAddress || '0xf9770f2bec2e1353478d021b41146e5a1b70dd7c');
+  
+  let toAddress = finalReceivingAddress;
+  let txValue = '0';
+  let txData = '0x';
+  let decimals = 18;
 
-  let amountWei;
-  try {
-    amountWei = ethers.parseEther(amount);
-  } catch {
-    amountWei = BigInt(amount) * BigInt(10 ** 18);
+  if (tokenType === 'ETH') {
+    toAddress = finalReceivingAddress;
+    txValue = ethers.parseEther(amount).toString();
+    txData = '0x';
+  } else {
+    // For ERC20 tokens
+    let tokenAddress = '';
+    if (tokenType === 'USDC') {
+      tokenAddress = ethers.getAddress('0x036cbd53842c5426634e7929541ec2318f3dcf7e'); // Base Sepolia USDC
+      decimals = 6; // USDC has 6 decimals
+    } else if (tokenType === 'EURC') {
+      tokenAddress = ethers.getAddress('0x808456652fdb597867f38412077A9182bf77359F'); // Base Sepolia EURC
+      decimals = 6; // EURC has 6 decimals
+    } else if (tokenType === 'TYI_MOCK_USD') {
+      tokenAddress = ethers.getAddress('0x27DC1C167AeF232bb1e21073304B526726a8727e'); // Tychi Labs Mock USD
+      decimals = 6; // Mock USD has 6 decimals
+    }
+
+    toAddress = tokenAddress;
+    const amountWei = ethers.parseUnits(amount, decimals);
+
+    // Pre-flight balance check to prevent MetaMask/estimateGas silent reverts
+    const tokenContract = new ethers.Contract(tokenAddress, [
+      'function balanceOf(address owner) view returns (uint256)'
+    ], provider);
+    const balance = await tokenContract.balanceOf(payerAddress);
+    if (balance < amountWei) {
+      const humanBalance = ethers.formatUnits(balance, decimals);
+      throw new Error(`Insufficient ${tokenType} balance! Your wallet has ${humanBalance} ${tokenType} at address ${tokenAddress}, but you tried to donate ${amount} ${tokenType}. Please use the Circle Faucet to get mock tokens.`);
+    }
+    
+    const erc20Interface = new ethers.Interface([
+      'function transfer(address to, uint256 value) returns (bool)'
+    ]);
+    txData = erc20Interface.encodeFunctionData('transfer', [finalReceivingAddress, amountWei]);
+    txValue = '0';
   }
-  
-  const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600); // 1-hour expiration
-  
-  // Connect to the token contract to fetch the current nonce of the payer
-  const tokenContract = new ethers.Contract(
-    tokenAddress,
-    [
-      'function nonces(address owner) view returns (uint256)',
-      'function name() view returns (string)'
-    ],
-    provider
-  );
-  
-  let nonce;
-  let tokenName = 'TYI_MOCK_USD';
-  try {
-    nonce = await tokenContract.nonces(payerAddress);
-  } catch (nonceErr) {
-    console.warn('Could not fetch token nonce directly, defaulting to 0:', nonceErr);
-    nonce = 0n;
-  }
-  
-  try {
-    tokenName = await tokenContract.name();
-  } catch (nameErr) {
-    console.warn('Could not fetch token name, defaulting to TYI_MOCK_USD:', nameErr);
-  }
 
-  // Define Domain and Types for the EIP-712 Signature
-  const domain = {
-    name: tokenName,
-    version: '1',
-    chainId: Number(BASE_SEPOLIA_CHAIN_ID),
-    verifyingContract: tokenAddress,
-  };
-
-  const types = {
-    Permit: [
-      { name: 'owner', type: 'address' },
-      { name: 'spender', type: 'address' },
-      { name: 'value', type: 'uint256' },
-      { name: 'nonce', type: 'uint256' },
-      { name: 'deadline', type: 'uint256' },
-    ],
-  };
-
-  const value = {
-    owner: payerAddress,
-    spender: donationContractAddress,
-    value: amountWei,
-    nonce: nonce,
-    deadline: deadline,
-  };
-
-  // Sign the typed permit data
-  const signature = await signer.signTypedData(domain, types, value);
-  const sig = ethers.Signature.from(signature);
-  progress('permit_signing', { status: 'MockUSD Permit approved!' });
-
-  // 3. Encode transaction with permit
-  progress('encode', { status: 'Preparing transaction...' });
-  const encodedData = encodeDonationWithPermitTransaction(
-    campaignId,
-    amountWei,
-    message,
-    deadline,
-    sig.v,
-    sig.r,
-    sig.s
-  );
-  progress('encode', { status: 'Transaction prepared' });
-
-  // 4. Get quote
-  progress('quote', { status: 'Getting gas sponsorship quote...' });
-  const quote = await getDonationQuote({
-    payerAddress,
-    to: donationContractAddress,
-    data: encodedData,
+  // 3. Get quote from UGF
+  progress('quote', { status: 'Requesting gas sponsorship quote...' });
+  const txObject = JSON.stringify({
+    from: payerAddress,
+    to: toAddress,
+    value: txValue,
+    data: txData,
   });
+
+  const quote = await client.quote.get({
+    payment_coin: UGF_CONFIG.paymentCoin,
+    payer_address: payerAddress,
+    payment_chain: UGF_CONFIG.chainId,
+    payment_chain_type: UGF_CONFIG.chainType,
+    tx_object: txObject,
+    dest_chain_id: UGF_CONFIG.chainId,
+    dest_chain_type: UGF_CONFIG.chainType,
+  });
+
+  // Calculate user-friendly quote fee representation (MockUSD usually has 6 decimals)
+  const feeDisplay = (parseFloat(quote.payment_amount) / 1e6).toFixed(2);
   progress('quote', {
-    status: 'Quote received',
+    status: `Quote received! Gas fee: ${feeDisplay} TYI_MOCK_USD.`,
     paymentAmount: quote.payment_amount,
     gasAmount: quote.gas_amount,
     digest: quote.digest,
-    expiresAt: quote.expires_at,
   });
 
-  // 5. Pay for gas
-  progress('payment', { status: 'Paying gas fee in MockUSD...' });
-  await payForGas(quote, signer, provider);
-  progress('payment', { status: 'Gas fee paid' });
+  // 3.5. Check if user has enough TYI_MOCK_USD to pay the UGF gas fee
+  const tyiMockUSDAddress = CONTRACT_ADDRESSES.baseSepolia.tyiMockUSD;
+  const tyiContract = new ethers.Contract(tyiMockUSDAddress, [
+    'function balanceOf(address owner) view returns (uint256)'
+  ], provider);
+  const tyiBalance = await tyiContract.balanceOf(payerAddress);
+  const requiredFee = BigInt(quote.payment_amount);
+  if (tyiBalance < requiredFee) {
+    const humanTyiBalance = (parseFloat(tyiBalance.toString()) / 1e6).toFixed(2);
+    throw new Error(`Insufficient TYI_MOCK_USD for UGF gas fees! The transaction requires a fee of ${feeDisplay} TYI_MOCK_USD to sponsor gas on Base Sepolia, but your wallet currently has ${humanTyiBalance} TYI_MOCK_USD. Please connect your wallet to the UGF Faucet (https://faucet.tychilabs.com/) to get free TYI_MOCK_USD.`);
+  }
 
-  // 6. Execute sponsored transaction
-  progress('execute', { status: 'Executing donation on-chain...' });
-  const result = await executeSponsoredTransaction(
+  // 4. Pay UGF Gas fee (sign and submit x402 payment in TYI_MOCK_USD)
+  progress('payment', { status: 'Please sign the gas fee payment of TYI_MOCK_USD in MetaMask...' });
+  await client.payment.x402.execute({ quote, signer });
+  progress('payment', { status: 'Gas fee successfully paid!' });
+
+  // 5. Execute sponsored transaction
+  progress('execute', { status: 'Executing sponsored transfer on-chain...' });
+  
+  const result = await client.chains.evm.sponsorAndExecute(
     quote.digest,
     signer,
-    async (s) => ({
-      to: donationContractAddress,
-      data: encodedData,
-      value: 0,
+    async () => ({
+      to: toAddress,
+      value: BigInt(txValue),
+      data: txData,
     }),
     {
-      maxAttempts: 30,
-      intervalMs: 2000,
+      maxAttempts: 35,
+      intervalMs: 2500,
       onTick: (status, attempt) => {
         progress('execute', {
-          status: `Waiting for sponsorship... (attempt ${attempt})`,
+          status: `Sponsorship confirmed! Waiting for transaction execution... (attempt ${attempt})`,
           txStatus: status.status,
         });
       },
@@ -419,7 +422,6 @@ export async function donateWithUGF({ signer, provider, campaignId, amount, mess
   progress('complete', {
     status: 'Donation successful!',
     userTxHash: result.userTxHash,
-    digest: quote.digest,
   });
 
   return {

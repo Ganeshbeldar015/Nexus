@@ -2,15 +2,19 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Heart, ArrowRight } from 'lucide-react';
 import Button from './Button';
+import { getDirectImageUrl } from '../lib/imageHelper';
 
 const CampaignCard = ({ campaign }) => {
-  const progress = Math.min((campaign.raised_amount / campaign.goal_amount) * 100, 100);
+  const raisedAmount = campaign.donation_logs 
+    ? campaign.donation_logs.reduce((sum, d) => sum + parseFloat(d.amount), 0) 
+    : parseFloat(campaign.raised_amount || 0);
+  const progress = Math.min((raisedAmount / campaign.goal_amount) * 100, 100);
 
   return (
-    <div className="bg-zinc-900/40 backdrop-blur-xl rounded-[2rem] overflow-hidden border border-white/10 shadow-2xl hover:border-white/20 transition-all duration-300 group flex flex-col">
+    <div className="bg-zinc-950 rounded-[2rem] overflow-hidden border border-white/10 shadow-2xl hover:border-white/20 transition-all duration-300 group flex flex-col">
       <div className="relative h-56 overflow-hidden bg-black/50">
         <img 
-          src={campaign.image_url} 
+          src={getDirectImageUrl(campaign.image_url)} 
           alt={campaign.title}
           className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 opacity-80"
         />
@@ -25,7 +29,7 @@ const CampaignCard = ({ campaign }) => {
         <h3 className="text-xl font-bold text-white mb-2 group-hover:text-zinc-300 transition-colors">
           {campaign.title}
         </h3>
-        <p className="text-zinc-400 text-sm line-clamp-2 mb-6">
+        <p className="text-zinc-300 text-sm line-clamp-2 mb-6">
           {campaign.description}
         </p>
         
@@ -44,7 +48,7 @@ const CampaignCard = ({ campaign }) => {
             <div className="flex justify-between items-end pt-2">
               <div>
                 <span className="block text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-1">Raised</span>
-                <span className="text-lg font-black text-white">${campaign.raised_amount.toLocaleString()}</span>
+                <span className="text-lg font-black text-white">${raisedAmount.toLocaleString()}</span>
               </div>
               <div className="text-right">
                 <span className="block text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-1">Goal</span>

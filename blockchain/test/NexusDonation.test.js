@@ -7,8 +7,7 @@ describe("Nexus Donation System", function () {
   let ethers;
 
   beforeEach(async function () {
-    const network = await hre.network.connect();
-    ethers = network.ethers;
+    ({ ethers } = await hre.network.create());
 
     [owner, ngo, donor] = await ethers.getSigners();
 
@@ -63,7 +62,7 @@ describe("Nexus Donation System", function () {
 
     const initialNgoBalance = await testToken.balanceOf(ngo.address);
     await donation.connect(ngo).withdrawFunds(1, ethers.parseEther("60"));
-    
+
     expect(await testToken.balanceOf(ngo.address)).to.equal(initialNgoBalance + ethers.parseEther("60"));
     const campaign = await donation.getCampaign(1);
     expect(campaign.withdrawnAmount).to.equal(ethers.parseEther("60"));
@@ -117,6 +116,7 @@ describe("Nexus Donation System", function () {
     const sig = ethers.Signature.from(signature);
 
     await donation.connect(donor).donateToCampaignWithPermit(
+      donorAddress,
       1,
       amount,
       "Permit donation",

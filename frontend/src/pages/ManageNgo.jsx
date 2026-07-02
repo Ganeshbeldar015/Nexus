@@ -25,6 +25,7 @@ import {
 import Button from '../components/Button';
 import Input from '../components/Input';
 import { toast } from 'sonner';
+import { getDirectImageUrl } from '../lib/imageHelper';
 
 const ManageNgo = () => {
   const { id } = useParams();
@@ -190,7 +191,12 @@ const ManageNgo = () => {
     toast.success('Address copied to clipboard!');
   };
 
-  const totalRaised = campaigns.reduce((acc, c) => acc + c.raised_amount, 0);
+  const totalRaised = campaigns.reduce((acc, c) => {
+    const raisedAmount = c.donation_logs
+      ? c.donation_logs.reduce((sum, d) => sum + parseFloat(d.amount), 0)
+      : parseFloat(c.raised_amount || 0);
+    return acc + raisedAmount;
+  }, 0);
   const totalGoal = campaigns.reduce((acc, c) => acc + c.goal_amount, 0);
 
   // Simulated blockchain transaction logs
@@ -473,7 +479,10 @@ const ManageNgo = () => {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
           {campaigns.length > 0 ? campaigns.map((campaign) => {
-            const progress = Math.min((campaign.raised_amount / campaign.goal_amount) * 100, 100);
+            const raisedAmount = campaign.donation_logs
+              ? campaign.donation_logs.reduce((sum, d) => sum + parseFloat(d.amount), 0)
+              : parseFloat(campaign.raised_amount || 0);
+            const progress = Math.min((raisedAmount / campaign.goal_amount) * 100, 100);
             return (
               <div 
                 key={campaign.id} 
@@ -481,7 +490,7 @@ const ManageNgo = () => {
                 onClick={() => navigate(`/campaign/${campaign.id}`)}
               >
                 <div className="h-44 bg-zinc-100 overflow-hidden relative">
-                  <img src={campaign.image_url} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                  <img src={getDirectImageUrl(campaign.image_url)} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
                   <div className="absolute top-4 left-4 px-3 py-1 bg-white/90 backdrop-blur text-[10px] font-bold uppercase tracking-widest rounded-full">
                     Active
                   </div>
@@ -493,7 +502,7 @@ const ManageNgo = () => {
                   </div>
                   <div className="space-y-2">
                     <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-                      <span>${campaign.raised_amount.toLocaleString()} Raised</span>
+                      <span>${raisedAmount.toLocaleString()} Raised</span>
                       <span>Goal: ${campaign.goal_amount.toLocaleString()}</span>
                     </div>
                     <div className="w-full h-1.5 bg-zinc-100 rounded-full overflow-hidden">

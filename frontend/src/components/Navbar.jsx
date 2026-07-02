@@ -1,31 +1,32 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Heart, LogOut, Menu, User, X, Sparkles, Wallet } from 'lucide-react';
-import { useState } from 'react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useNexusWallet } from '../lib/useNexusWallet';
 
 const Navbar = () => {
   const { user, logout } = useAuth();
+  const { isConnected, address, isDevWallet, isDevWalletEnabled, connectDevWallet, disconnect } = useNexusWallet();
   const navigate = useNavigate();
   const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const { isConnected, address, isDevWallet, isDevWalletEnabled, connectDevWallet, disconnect } = useNexusWallet();
 
   const handleLogout = () => {
     logout();
     navigate('/');
   };
 
+  const isLanding = location.pathname === '/';
+
   return (
     <nav
- className={`absolute w-full left-0 top-0 z-50 ${
-  location.pathname === '/transparency'
-    ? 'bg-black shadow-lg'
-    : 'bg-transparent'
-}`}
->
+      className={`w-full z-50 ${
+        isLanding
+          ? 'absolute left-0 top-0 bg-transparent'
+          : 'sticky top-0 bg-black/95 backdrop-blur-md border-b border-white/10 shadow-lg'
+      }`}
+    >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-20 items-center">
           
@@ -97,6 +98,38 @@ const Navbar = () => {
 
             {user ? (
               <div className="flex items-center gap-6 pl-4 border-l border-white/10">
+                {/* Web3 Wallet Connection Badge */}
+                <div className="hidden sm:block scale-90 origin-right">
+                  {isDevWallet ? (
+                    <div className="flex items-center gap-3 bg-white/5 border border-white/10 px-4 py-2 rounded-2xl">
+                      <div className="flex flex-col text-left">
+                        <span className="text-[9px] bg-lime-400 text-black px-1.5 py-0.5 rounded font-bold uppercase tracking-wider self-start">Shared Dev</span>
+                        <span className="text-xs font-mono text-zinc-300 mt-1">
+                          {address.slice(0, 6)}...{address.slice(-4)}
+                        </span>
+                      </div>
+                      <button 
+                        onClick={disconnect}
+                        className="text-xs text-red-400 hover:text-red-300 font-bold bg-transparent border-0 cursor-pointer pl-2 border-l border-white/10 animate-pulse"
+                      >
+                        Disconnect
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <ConnectButton label="Connect Wallet" accountStatus="avatar" chainStatus="icon" showBalance={false} />
+                      {!isConnected && isDevWalletEnabled && (
+                        <button
+                          onClick={connectDevWallet}
+                          className="px-4 py-2 text-xs bg-zinc-800 hover:bg-lime-400 hover:text-black text-white font-bold rounded-2xl transition-all border border-zinc-700/50 hover:border-lime-400 shadow-sm"
+                        >
+                          ⚡ Use Shared Test Wallet
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 <Link 
                   to={`/${user.role}-dashboard`}
                   className="group flex items-center gap-2 px-6 py-2.5 rounded-full bg-white/5 hover:bg-lime-400 border border-white/10 hover:border-lime-400 text-white hover:text-black transition-all duration-300 shadow-lg hover:shadow-[0_0_20px_rgba(163,230,53,0.4)]"

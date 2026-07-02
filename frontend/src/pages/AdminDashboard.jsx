@@ -1,16 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { mockDb } from '../services/mockDb';
 import { supabase } from '../lib/supabase';
-import { ShieldCheck, Users, BarChart3, AlertCircle, Check, X, Search } from 'lucide-react';
+import { ShieldCheck, Users, BarChart3, AlertCircle, Check, X, Search, Megaphone } from 'lucide-react';
 import Button from '../components/Button';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
+import Safe from '@safe-global/protocol-kit';
+import { ethers } from 'ethers';
+import { CONTRACT_ADDRESSES } from '../lib/contracts';
+import DonationABI from '../lib/abi/Donation.json';
+import { safeParseCampaignId } from '../lib/ugf';
+import { useNexusWallet } from '../lib/useNexusWallet';
 
 const AdminDashboard = () => {
   const [ngos, setNgos] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { isConnected, getSigner } = useNexusWallet();
 
   useEffect(() => {
     fetchData();
@@ -36,8 +43,10 @@ const AdminDashboard = () => {
       }));
       setNgos(formattedNgos);
 
-      // Fetch Campaigns for stats
-      const { data: campaignData } = await supabase.from('campaigns').select('raised_amount');
+      // Fetch Campaigns for stats & approval
+      const { data: campaignData } = await supabase
+        .from('campaigns')
+        .select('*, ngos(organization_name), donation_logs(amount)');
       if (campaignData) setCampaigns(campaignData);
     } catch (error) {
       console.error("Error fetching admin data:", error);
@@ -76,13 +85,126 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleApproveCampaign = async (campaign) => {
+    const { id, title, ngo_wallet_address, darpan_id, uint_id } = campaign;
+    
+    if (!ngo_wallet_address) {
+      toast.error("NGO wallet address is missing. Cannot deploy Safe multisig.");
+      return;
+    }
+    
+    if (!isConnected) {
+      toast.error("Please connect your wallet to approve this campaign.");
+      return;
+    }
+    
+    const adminAddress = '0x27850D1Caf47dDe211c37e15e1e76112b27d2cce';
+    const toastId = toast.loading(`Deploying 2/2 Safe Multisig for "${title}"...`);
+    
+    try {
+      const signer = await getSigner();
+      const userAddress = await signer.getAddress();
+      
+      if (userAddress.toLowerCase() !== adminAddress.toLowerCase()) {
+        toast.error(`Please switch to the fixed Admin wallet: ${adminAddress}`, { id: toastId });
+        return;
+      }
+
+      // 1. Configure the Safe multisig owners and threshold
+      const safeAccountConfig = {
+        owners: [
+          ethers.getAddress(ngo_wallet_address),
+          ethers.getAddress(adminAddress)
+        ],
+        threshold: 2
+      };
+
+      // 2. Initialize the Safe Protocol Kit with predictedSafe configuration
+      const protocolKit = await Safe.init({
+        provider: window.ethereum || signer.provider,
+        signer: userAddress,
+        predictedSafe: {
+          safeAccountConfig
+        }
+      });
+
+      // 3. Predict the Safe address
+      const safeAddress = await protocolKit.getAddress();
+      toast.loading(`Deploying Safe multisig at: ${safeAddress.substring(0, 6)}...${safeAddress.substring(38)}`, { id: toastId });
+
+      // 4. Create deployment transaction
+      const deploymentTx = await protocolKit.createSafeDeploymentTransaction();
+
+      // 5. Send transaction using the Admin signer
+      const txResponse = await signer.sendTransaction({
+        to: deploymentTx.to,
+        value: deploymentTx.value ? ethers.parseUnits(deploymentTx.value, 'wei').toString() : '0',
+        data: deploymentTx.data
+      });
+      
+      toast.loading("Waiting for Safe deployment confirmation on-chain...", { id: toastId });
+      await txResponse.wait();
+      toast.success(`Safe multisig deployed successfully at ${safeAddress}!`, { id: toastId });
+
+      // 6. Register campaign on-chain in Donation registry contract
+      toast.loading("Registering campaign registry on-chain...", { id: toastId });
+      const contractAddress = CONTRACT_ADDRESSES.baseSepolia.donation;
+      const donationContract = new ethers.Contract(contractAddress, DonationABI, signer);
+      
+      const numericCampaignId = uint_id || safeParseCampaignId(id);
+      
+      const regTx = await donationContract.registerCampaign(
+        numericCampaignId,
+        safeAddress,
+        darpan_id || "N/A"
+      );
+      await regTx.wait();
+      toast.success("On-chain campaign registry complete!", { id: toastId });
+
+      // 7. Update Supabase campaign status to approved
+      const { error: dbError } = await supabase
+        .from('campaigns')
+        .update({ status: 'approved' })
+        .eq('id', id);
+
+      if (dbError) throw dbError;
+      toast.success(`Campaign "${title}" approved and registered successfully!`, { id: toastId });
+      fetchData();
+    } catch (error) {
+      console.error("Failed to approve campaign:", error);
+      toast.error(`Error during approval: ${error.message || error}`, { id: toastId });
+    }
+  };
+
+  const handleRejectCampaign = async (id, title) => {
+    try {
+      const { error } = await supabase
+        .from('campaigns')
+        .update({ status: 'rejected' })
+        .eq('id', id);
+
+      if (error) throw error;
+      toast.error(`Campaign "${title}" rejected.`);
+      fetchData();
+    } catch (error) {
+      console.error('Error rejecting campaign:', error);
+      toast.error(`Failed to reject campaign: ${error.message}`);
+    }
+  };
+
+
   const filteredNgos = ngos.filter(ngo => 
     (ngo.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     ngo.email.toLowerCase().includes(searchQuery.toLowerCase())) &&
     ngo.status === 'pending'
   );
 
-  const totalRaised = campaigns.reduce((acc, c) => acc + parseFloat(c.raised_amount), 0);
+  const totalRaised = campaigns.reduce((acc, c) => {
+    const raisedAmount = c.donation_logs
+      ? c.donation_logs.reduce((sum, d) => sum + parseFloat(d.amount), 0)
+      : parseFloat(c.raised_amount || 0);
+    return acc + raisedAmount;
+  }, 0);
 
   return (
     <div className="max-w-4xl mx-auto space-y-16 py-8">
@@ -198,6 +320,83 @@ const AdminDashboard = () => {
              </div>
            </div>
         </div>
+
+         {/* Campaign Requests Queue */}
+         <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <h3 className="text-2xl font-black text-black flex items-center gap-2" id="campaigns">
+                 <Megaphone className="text-zinc-400" />
+                 Campaign Approval Queue
+              </h3>
+            </div>
+
+            <div className="bg-white rounded-[2rem] border border-zinc-100 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                 <table className="w-full text-left min-w-[700px]">
+                   <thead className="bg-zinc-50 border-b border-zinc-100">
+                     <tr>
+                       <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Campaign</th>
+                       <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">NGO</th>
+                       <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Darpan ID</th>
+                       <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Wallet Address</th>
+                       <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Goal</th>
+                       <th className="px-6 py-4 text-xs font-bold text-slate-400 uppercase tracking-wider text-right">Actions</th>
+                     </tr>
+                   </thead>
+                   <tbody className="divide-y divide-zinc-50">
+                     {campaigns.filter(c => c.status === 'pending').length > 0 ? (
+                       campaigns.filter(c => c.status === 'pending').map((campaign) => (
+                         <tr key={campaign.id} className="hover:bg-zinc-50/50 transition-colors group">
+                           <td className="px-6 py-5">
+                             <div>
+                               <p className="text-base font-bold text-black">{campaign.title}</p>
+                               <p className="text-xs text-zinc-500 line-clamp-1 max-w-xs">{campaign.description}</p>
+                             </div>
+                           </td>
+                           <td className="px-6 py-5 text-sm font-semibold text-zinc-700">
+                             {campaign.ngos?.organization_name || 'Unknown NGO'}
+                           </td>
+                           <td className="px-6 py-5 text-sm font-mono text-zinc-600">
+                             {campaign.darpan_id || 'N/A'}
+                           </td>
+                           <td className="px-6 py-5 text-sm font-mono text-zinc-500" title={campaign.ngo_wallet_address}>
+                             {campaign.ngo_wallet_address ? `${campaign.ngo_wallet_address.substring(0, 6)}...${campaign.ngo_wallet_address.substring(38)}` : 'N/A'}
+                           </td>
+                           <td className="px-6 py-5 text-sm font-bold text-black">
+                             ${parseFloat(campaign.goal_amount).toLocaleString()}
+                           </td>
+                           <td className="px-6 py-5 text-right">
+                             <div className="flex justify-end gap-2">
+                               <button 
+                                 onClick={() => handleApproveCampaign(campaign)}
+                                 className="p-2.5 bg-zinc-100 text-black rounded-xl hover:bg-black hover:text-white transition-all shadow-sm"
+                                 title="Approve Campaign"
+                               >
+                                 <Check size={16} />
+                               </button>
+                               <button 
+                                 onClick={() => handleRejectCampaign(campaign.id, campaign.title)}
+                                 className="p-2.5 bg-zinc-100 text-black rounded-xl hover:bg-black hover:text-white transition-all shadow-sm"
+                                 title="Reject Campaign"
+                               >
+                                 <X size={16} />
+                               </button>
+                             </div>
+                           </td>
+                         </tr>
+                       ))
+                     ) : (
+                       <tr>
+                         <td colSpan="6" className="px-6 py-12 text-center text-zinc-500 font-medium text-sm">
+                           No pending campaign approval requests.
+                         </td>
+                       </tr>
+                     )}
+                   </tbody>
+                 </table>
+              </div>
+            </div>
+         </div>
 
         {/* System Alerts */}
         <div className="space-y-6">
